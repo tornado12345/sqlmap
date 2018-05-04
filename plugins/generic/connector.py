@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2017 sqlmap developers (http://sqlmap.org/)
-See the file 'doc/COPYING' for copying permission
+Copyright (c) 2006-2018 sqlmap developers (http://sqlmap.org/)
+See the file 'LICENSE' for copying permission
 """
 
 import os
@@ -22,8 +22,8 @@ class Connector:
         self.cursor = None
 
     def initConnection(self):
-        self.user = conf.dbmsUser
-        self.password = conf.dbmsPass if conf.dbmsPass is not None else ""
+        self.user = conf.dbmsUser or ""
+        self.password = conf.dbmsPass or ""
         self.hostname = conf.hostname
         self.port = conf.port
         self.db = conf.dbmsDb

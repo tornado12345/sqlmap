@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2017 sqlmap developers (http://sqlmap.org/)
-See the file 'doc/COPYING' for copying permission
+Copyright (c) 2006-2018 sqlmap developers (http://sqlmap.org/)
+See the file 'LICENSE' for copying permission
 """
 
 from lib.core.enums import DBMS
@@ -14,7 +14,6 @@ from plugins.dbms.mssqlserver.fingerprint import Fingerprint
 from plugins.dbms.mssqlserver.syntax import Syntax
 from plugins.dbms.mssqlserver.takeover import Takeover
 from plugins.generic.misc import Miscellaneous
-
 
 class MSSQLServerMap(Syntax, Fingerprint, Enumeration, Filesystem, Miscellaneous, Takeover):
     """

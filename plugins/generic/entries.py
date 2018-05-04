@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2017 sqlmap developers (http://sqlmap.org/)
-See the file 'doc/COPYING' for copying permission
+Copyright (c) 2006-2018 sqlmap developers (http://sqlmap.org/)
+See the file 'LICENSE' for copying permission
 """
 
 import re
@@ -22,6 +22,8 @@ from lib.core.common import isTechniqueAvailable
 from lib.core.common import prioritySortColumns
 from lib.core.common import readInput
 from lib.core.common import safeSQLIdentificatorNaming
+from lib.core.common import singleTimeLogMessage
+from lib.core.common import singleTimeWarnMessage
 from lib.core.common import unArrayizeValue
 from lib.core.common import unsafeSQLIdentificatorNaming
 from lib.core.data import conf
@@ -68,10 +70,15 @@ class Entries:
             if Backend.getIdentifiedDbms() in (DBMS.ORACLE, DBMS.DB2, DBMS.HSQLDB):
                 conf.db = conf.db.upper()
 
-            if  ',' in conf.db:
+            if ',' in conf.db:
                 errMsg = "only one database name is allowed when enumerating "
                 errMsg += "the tables' columns"
                 raise SqlmapMissingMandatoryOptionException(errMsg)
+
+            if conf.exclude and conf.db in conf.exclude.split(','):
+                infoMsg = "skipping database '%s'" % unsafeSQLIdentificatorNaming(conf.db)
+                singleTimeLogMessage(infoMsg)
+                return
 
         conf.db = safeSQLIdentificatorNaming(conf.db)
 
@@ -79,7 +86,7 @@ class Entries:
             if Backend.getIdentifiedDbms() in (DBMS.ORACLE, DBMS.DB2, DBMS.HSQLDB):
                 conf.tbl = conf.tbl.upper()
 
-            tblList = conf.tbl.split(",")
+            tblList = conf.tbl.split(',')
         else:
             self.getTables()
 
@@ -99,6 +106,14 @@ class Entries:
             tblList[tblList.index(tbl)] = safeSQLIdentificatorNaming(tbl, True)
 
         for tbl in tblList:
+            if kb.dumpKeyboardInterrupt:
+                break
+
+            if conf.exclude and tbl in conf.exclude.split(','):
+                infoMsg = "skipping table '%s'" % unsafeSQLIdentificatorNaming(tbl)
+                singleTimeLogMessage(infoMsg)
+                continue
+
             conf.tbl = tbl
             kb.data.dumpedTable = {}
 
@@ -129,8 +144,8 @@ class Entries:
                 columns = kb.data.cachedColumns[safeSQLIdentificatorNaming(conf.db)][safeSQLIdentificatorNaming(tbl, True)]
                 colList = sorted(filter(None, columns.keys()))
 
-                if conf.excludeCol:
-                    colList = [_ for _ in colList if _ not in conf.excludeCol.split(',')]
+                if conf.exclude:
+                    colList = [_ for _ in colList if _ not in conf.exclude.split(',')]
 
                 if not colList:
                     warnMsg = "skipping table '%s'" % unsafeSQLIdentificatorNaming(tbl)
@@ -170,18 +185,48 @@ class Entries:
                         if not (isTechniqueAvailable(PAYLOAD.TECHNIQUE.UNION) and kb.injection.data[PAYLOAD.TECHNIQUE.UNION].where == PAYLOAD.WHERE.ORIGINAL):
                             table = "%s.%s" % (conf.db, tbl)
 
-                            try:
-                                retVal = pivotDumpTable(table, colList, blind=False)
-                            except KeyboardInterrupt:
-                                retVal = None
-                                kb.dumpKeyboardInterrupt = True
-                                clearConsoleLine()
-                                warnMsg = "Ctrl+C detected in dumping phase"
-                                logger.warn(warnMsg)
+                            if Backend.isDbms(DBMS.MSSQL) and not conf.forcePivoting:
+                                warnMsg = "in case of table dumping problems (e.g. column entry order) "
+                                warnMsg += "you are advised to rerun with '--force-pivoting'"
+                                singleTimeWarnMessage(warnMsg)
 
-                            if retVal:
-                                entries, _ = retVal
-                                entries = zip(*[entries[colName] for colName in colList])
+                                query = rootQuery.blind.count % table
+                                query = agent.whereQuery(query)
+
+                                count = inject.getValue(query, blind=False, time=False, expected=EXPECTED.INT, charsetType=CHARSET_TYPE.DIGITS)
+                                if isNumPosStrValue(count):
+                                    try:
+                                        indexRange = getLimitRange(count, plusOne=True)
+
+                                        for index in indexRange:
+                                            row = []
+                                            for column in colList:
+                                                query = rootQuery.blind.query3 % (column, column, table, index)
+                                                query = agent.whereQuery(query)
+                                                value = inject.getValue(query, blind=False, time=False, dump=True) or ""
+                                                row.append(value)
+
+                                            entries.append(row)
+
+                                    except KeyboardInterrupt:
+                                        kb.dumpKeyboardInterrupt = True
+                                        clearConsoleLine()
+                                        warnMsg = "Ctrl+C detected in dumping phase"
+                                        logger.warn(warnMsg)
+
+                            if not entries and not kb.dumpKeyboardInterrupt:
+                                try:
+                                    retVal = pivotDumpTable(table, colList, blind=False)
+                                except KeyboardInterrupt:
+                                    retVal = None
+                                    kb.dumpKeyboardInterrupt = True
+                                    clearConsoleLine()
+                                    warnMsg = "Ctrl+C detected in dumping phase"
+                                    logger.warn(warnMsg)
+
+                                if retVal:
+                                    entries, _ = retVal
+                                    entries = zip(*[entries[colName] for colName in colList])
                         else:
                             query = rootQuery.inband.query % (colString, conf.db, tbl)
                     elif Backend.getIdentifiedDbms() in (DBMS.MYSQL, DBMS.PGSQL, DBMS.HSQLDB):
@@ -191,7 +236,7 @@ class Entries:
 
                     query = agent.whereQuery(query)
 
-                    if not entries and query:
+                    if not entries and query and not kb.dumpKeyboardInterrupt:
                         try:
                             entries = inject.getValue(query, blind=False, time=False, dump=True)
                         except KeyboardInterrupt:
@@ -277,25 +322,58 @@ class Entries:
 
                         continue
 
-                    elif Backend.getIdentifiedDbms() in (DBMS.ACCESS, DBMS.SYBASE, DBMS.MAXDB, DBMS.MSSQL):
+                    elif Backend.getIdentifiedDbms() in (DBMS.ACCESS, DBMS.SYBASE, DBMS.MAXDB, DBMS.MSSQL, DBMS.INFORMIX):
                         if Backend.isDbms(DBMS.ACCESS):
                             table = tbl
                         elif Backend.getIdentifiedDbms() in (DBMS.SYBASE, DBMS.MSSQL):
                             table = "%s.%s" % (conf.db, tbl)
                         elif Backend.isDbms(DBMS.MAXDB):
                             table = "%s.%s" % (conf.db, tbl)
+                        elif Backend.isDbms(DBMS.INFORMIX):
+                            table = "%s:%s" % (conf.db, tbl)
 
-                        try:
-                            retVal = pivotDumpTable(table, colList, count, blind=True)
-                        except KeyboardInterrupt:
-                            retVal = None
-                            kb.dumpKeyboardInterrupt = True
-                            clearConsoleLine()
-                            warnMsg = "Ctrl+C detected in dumping phase"
-                            logger.warn(warnMsg)
+                        if Backend.isDbms(DBMS.MSSQL) and not conf.forcePivoting:
+                            warnMsg = "in case of table dumping problems (e.g. column entry order) "
+                            warnMsg += "you are advised to rerun with '--force-pivoting'"
+                            singleTimeWarnMessage(warnMsg)
 
-                        if retVal:
-                            entries, lengths = retVal
+                            try:
+                                indexRange = getLimitRange(count, plusOne=True)
+
+                                for index in indexRange:
+                                    for column in colList:
+                                        query = rootQuery.blind.query3 % (column, column, table, index)
+                                        query = agent.whereQuery(query)
+
+                                        value = inject.getValue(query, union=False, error=False, dump=True) or ""
+
+                                        if column not in lengths:
+                                            lengths[column] = 0
+
+                                        if column not in entries:
+                                            entries[column] = BigArray()
+
+                                        lengths[column] = max(lengths[column], len(DUMP_REPLACEMENTS.get(getUnicode(value), getUnicode(value))))
+                                        entries[column].append(value)
+
+                            except KeyboardInterrupt:
+                                kb.dumpKeyboardInterrupt = True
+                                clearConsoleLine()
+                                warnMsg = "Ctrl+C detected in dumping phase"
+                                logger.warn(warnMsg)
+
+                        if not entries and not kb.dumpKeyboardInterrupt:
+                            try:
+                                retVal = pivotDumpTable(table, colList, count, blind=True)
+                            except KeyboardInterrupt:
+                                retVal = None
+                                kb.dumpKeyboardInterrupt = True
+                                clearConsoleLine()
+                                warnMsg = "Ctrl+C detected in dumping phase"
+                                logger.warn(warnMsg)
+
+                            if retVal:
+                                entries, lengths = retVal
 
                     else:
                         emptyColumns = []
@@ -404,12 +482,17 @@ class Entries:
 
         if kb.data.cachedTables:
             if isinstance(kb.data.cachedTables, list):
-                kb.data.cachedTables = { None: kb.data.cachedTables }
+                kb.data.cachedTables = {None: kb.data.cachedTables}
 
             for db, tables in kb.data.cachedTables.items():
                 conf.db = db
 
                 for table in tables:
+                    if conf.exclude and table in conf.exclude.split(','):
+                        infoMsg = "skipping table '%s'" % unsafeSQLIdentificatorNaming(table)
+                        logger.info(infoMsg)
+                        continue
+
                     try:
                         conf.tbl = table
                         kb.data.cachedColumns = {}
@@ -422,9 +505,8 @@ class Entries:
 
     def dumpFoundColumn(self, dbs, foundCols, colConsider):
         message = "do you want to dump entries? [Y/n] "
-        output = readInput(message, default="Y")
 
-        if output and output[0] not in ("y", "Y"):
+        if not readInput(message, default='Y', boolean=True):
             return
 
         dumpFromDbs = []
@@ -435,14 +517,14 @@ class Entries:
                 message += "[%s]\n" % unsafeSQLIdentificatorNaming(db)
 
         message += "[q]uit"
-        test = readInput(message, default="a")
+        choice = readInput(message, default='a')
 
-        if not test or test in ("a", "A"):
+        if not choice or choice in ('a', 'A'):
             dumpFromDbs = dbs.keys()
-        elif test in ("q", "Q"):
+        elif choice in ('q', 'Q'):
             return
         else:
-            dumpFromDbs = test.replace(" ", "").split(",")
+            dumpFromDbs = choice.replace(" ", "").split(',')
 
         for db, tblData in dbs.items():
             if db not in dumpFromDbs or not tblData:
@@ -458,16 +540,16 @@ class Entries:
 
             message += "[s]kip\n"
             message += "[q]uit"
-            test = readInput(message, default="a")
+            choice = readInput(message, default='a')
 
-            if not test or test in ("a", "A"):
+            if not choice or choice in ('a', 'A'):
                 dumpFromTbls = tblData
-            elif test in ("s", "S"):
+            elif choice in ('s', 'S'):
                 continue
-            elif test in ("q", "Q"):
+            elif choice in ('q', 'Q'):
                 return
             else:
-                dumpFromTbls = test.replace(" ", "").split(",")
+                dumpFromTbls = choice.replace(" ", "").split(',')
 
             for table, columns in tblData.items():
                 if table not in dumpFromTbls:
@@ -476,10 +558,10 @@ class Entries:
                 conf.tbl = table
                 colList = filter(None, sorted(columns))
 
-                if conf.excludeCol:
-                    colList = [_ for _ in colList if _ not in conf.excludeCol.split(',')]
+                if conf.exclude:
+                    colList = [_ for _ in colList if _ not in conf.exclude.split(',')]
 
-                conf.col = ",".join(colList)
+                conf.col = ','.join(colList)
                 kb.data.cachedColumns = {}
                 kb.data.dumpedTable = {}
 
@@ -490,9 +572,8 @@ class Entries:
 
     def dumpFoundTables(self, tables):
         message = "do you want to dump tables' entries? [Y/n] "
-        output = readInput(message, default="Y")
 
-        if output and output[0].lower() != "y":
+        if not readInput(message, default='Y', boolean=True):
             return
 
         dumpFromDbs = []
@@ -503,14 +584,14 @@ class Entries:
                 message += "[%s]\n" % unsafeSQLIdentificatorNaming(db)
 
         message += "[q]uit"
-        test = readInput(message, default="a")
+        choice = readInput(message, default='a')
 
-        if not test or test.lower() == "a":
+        if not choice or choice.lower() == 'a':
             dumpFromDbs = tables.keys()
-        elif test.lower() == "q":
+        elif choice.lower() == 'q':
             return
         else:
-            dumpFromDbs = test.replace(" ", "").split(",")
+            dumpFromDbs = choice.replace(" ", "").split(',')
 
         for db, tablesList in tables.items():
             if db not in dumpFromDbs or not tablesList:
@@ -526,16 +607,16 @@ class Entries:
 
             message += "[s]kip\n"
             message += "[q]uit"
-            test = readInput(message, default="a")
+            choice = readInput(message, default='a')
 
-            if not test or test.lower() == "a":
+            if not choice or choice.lower() == 'a':
                 dumpFromTbls = tablesList
-            elif test.lower() == "s":
+            elif choice.lower() == 's':
                 continue
-            elif test.lower() == "q":
+            elif choice.lower() == 'q':
                 return
             else:
-                dumpFromTbls = test.replace(" ", "").split(",")
+                dumpFromTbls = choice.replace(" ", "").split(',')
 
             for table in dumpFromTbls:
                 conf.tbl = table

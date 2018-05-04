@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2017 sqlmap developers (http://sqlmap.org/)
-See the file 'doc/COPYING' for copying permission
+Copyright (c) 2006-2018 sqlmap developers (http://sqlmap.org/)
+See the file 'LICENSE' for copying permission
 """
 
 import httplib
@@ -32,7 +32,7 @@ def parseSitemap(url, retVal=None):
             content = Request.getPage(url=url, raise404=True)[0] if not abortedFlag else ""
         except httplib.InvalidURL:
             errMsg = "invalid URL given for sitemap ('%s')" % url
-            raise SqlmapSyntaxException, errMsg
+            raise SqlmapSyntaxException(errMsg)
 
         for match in re.finditer(r"<loc>\s*([^<]+)", content or ""):
             if abortedFlag:
@@ -41,8 +41,7 @@ def parseSitemap(url, retVal=None):
             if url.endswith(".xml") and "sitemap" in url.lower():
                 if kb.followSitemapRecursion is None:
                     message = "sitemap recursion detected. Do you want to follow? [y/N] "
-                    test = readInput(message, default="N")
-                    kb.followSitemapRecursion = test[0] in ("y", "Y")
+                    kb.followSitemapRecursion = readInput(message, default='N', boolean=True)
                 if kb.followSitemapRecursion:
                     parseSitemap(url, retVal)
             else:
