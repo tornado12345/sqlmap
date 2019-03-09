@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2018 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
@@ -19,6 +19,7 @@ from lib.core.common import calculateDeltaSeconds
 from lib.core.common import clearConsoleLine
 from lib.core.common import dataToStdout
 from lib.core.common import extractRegexResult
+from lib.core.common import firstNotNone
 from lib.core.common import flattenValue
 from lib.core.common import getConsoleWidth
 from lib.core.common import getPartRun
@@ -90,7 +91,10 @@ def _oneShotUnionUse(expression, unpack=True, limited=False):
             # Parse the returned page to get the exact UNION-based
             # SQL injection output
             def _(regex):
-                return reduce(lambda x, y: x if x is not None else y, (extractRegexResult(regex, removeReflectiveValues(page, payload), re.DOTALL | re.IGNORECASE), extractRegexResult(regex, removeReflectiveValues(listToStrValue((_ for _ in headers.headers if not _.startswith(HTTP_HEADER.URI)) if headers else None), payload, True), re.DOTALL | re.IGNORECASE)), None)
+                return firstNotNone(
+                    extractRegexResult(regex, removeReflectiveValues(page, payload), re.DOTALL | re.IGNORECASE),
+                    extractRegexResult(regex, removeReflectiveValues(listToStrValue((_ for _ in headers.headers if not _.startswith(HTTP_HEADER.URI)) if headers else None), payload, True), re.DOTALL | re.IGNORECASE)
+                )
 
             # Automatically patching last char trimming cases
             if kb.chars.stop not in (page or "") and kb.chars.stop[:-1] in (page or ""):
@@ -254,7 +258,7 @@ def unionUse(expression, unpack=True, dump=False):
                     stopLimit = int(count)
 
                     infoMsg = "used SQL query returns "
-                    infoMsg += "%d entries" % stopLimit
+                    infoMsg += "%d %s" % (stopLimit, "entries" if stopLimit > 1 else "entry")
                     logger.info(infoMsg)
 
             elif count and (not isinstance(count, basestring) or not count.isdigit()):
@@ -308,9 +312,8 @@ def unionUse(expression, unpack=True, dump=False):
                         while kb.threadContinue:
                             with kb.locks.limit:
                                 try:
-                                    valueStart = time.time()
                                     threadData.shared.counter += 1
-                                    num = threadData.shared.limits.next()
+                                    num = next(threadData.shared.limits)
                                 except StopIteration:
                                     break
 
@@ -333,7 +336,7 @@ def unionUse(expression, unpack=True, dump=False):
                                         items = parseUnionPage(output)
 
                                         if threadData.shared.showEta:
-                                            threadData.shared.progress.progress(time.time() - valueStart, threadData.shared.counter)
+                                            threadData.shared.progress.progress(threadData.shared.counter)
                                         if isListLike(items):
                                             # in case that we requested N columns and we get M!=N then we have to filter a bit
                                             if len(items) > 1 and len(expressionFieldsList) > 1:
@@ -355,7 +358,7 @@ def unionUse(expression, unpack=True, dump=False):
                                     else:
                                         index = None
                                         if threadData.shared.showEta:
-                                            threadData.shared.progress.progress(time.time() - valueStart, threadData.shared.counter)
+                                            threadData.shared.progress.progress(threadData.shared.counter)
                                         for index in xrange(1 + len(threadData.shared.buffered)):
                                             if index < len(threadData.shared.buffered) and threadData.shared.buffered[index][0] >= num:
                                                 break
@@ -370,7 +373,7 @@ def unionUse(expression, unpack=True, dump=False):
                                         del threadData.shared.buffered[0]
 
                                 if conf.verbose == 1 and not (threadData.resumed and kb.suppressResumeInfo) and not threadData.shared.showEta:
-                                    _ = ','.join("\"%s\"" % _ for _ in flattenValue(arrayizeValue(items))) if not isinstance(items, basestring) else items
+                                    _ = ','.join("'%s'" % _ for _ in (flattenValue(arrayizeValue(items)) if not isinstance(items, basestring) else [items]))
                                     status = "[%s] [INFO] %s: %s" % (time.strftime("%X"), "resumed" if threadData.resumed else "retrieved", _ if kb.safeCharEncode else safecharencode(_))
 
                                     if len(status) > width:

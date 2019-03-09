@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2018 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
@@ -67,7 +67,7 @@ class Entries:
             conf.db = self.getCurrentDb()
 
         elif conf.db is not None:
-            if Backend.getIdentifiedDbms() in (DBMS.ORACLE, DBMS.DB2, DBMS.HSQLDB):
+            if Backend.getIdentifiedDbms() in (DBMS.ORACLE, DBMS.DB2, DBMS.HSQLDB, DBMS.H2):
                 conf.db = conf.db.upper()
 
             if ',' in conf.db:
@@ -83,7 +83,7 @@ class Entries:
         conf.db = safeSQLIdentificatorNaming(conf.db)
 
         if conf.tbl:
-            if Backend.getIdentifiedDbms() in (DBMS.ORACLE, DBMS.DB2, DBMS.HSQLDB):
+            if Backend.getIdentifiedDbms() in (DBMS.ORACLE, DBMS.DB2, DBMS.HSQLDB, DBMS.H2):
                 conf.tbl = conf.tbl.upper()
 
             tblList = conf.tbl.split(',')
@@ -129,10 +129,7 @@ class Entries:
                 else:
                     kb.dumpTable = "%s.%s" % (conf.db, tbl)
 
-                if not safeSQLIdentificatorNaming(conf.db) in kb.data.cachedColumns \
-                   or safeSQLIdentificatorNaming(tbl, True) not in \
-                   kb.data.cachedColumns[safeSQLIdentificatorNaming(conf.db)] \
-                   or not kb.data.cachedColumns[safeSQLIdentificatorNaming(conf.db)][safeSQLIdentificatorNaming(tbl, True)]:
+                if safeSQLIdentificatorNaming(conf.db) not in kb.data.cachedColumns or safeSQLIdentificatorNaming(tbl, True) not in kb.data.cachedColumns[safeSQLIdentificatorNaming(conf.db)] or not kb.data.cachedColumns[safeSQLIdentificatorNaming(conf.db)][safeSQLIdentificatorNaming(tbl, True)]:
                     warnMsg = "unable to enumerate the columns for table "
                     warnMsg += "'%s' in database" % unsafeSQLIdentificatorNaming(tbl)
                     warnMsg += " '%s'" % unsafeSQLIdentificatorNaming(conf.db)
@@ -142,7 +139,7 @@ class Entries:
                     continue
 
                 columns = kb.data.cachedColumns[safeSQLIdentificatorNaming(conf.db)][safeSQLIdentificatorNaming(tbl, True)]
-                colList = sorted(filter(None, columns.keys()))
+                colList = sorted(column for column in columns if column)
 
                 if conf.exclude:
                     colList = [_ for _ in colList if _ not in conf.exclude.split(',')]
@@ -229,7 +226,7 @@ class Entries:
                                     entries = zip(*[entries[colName] for colName in colList])
                         else:
                             query = rootQuery.inband.query % (colString, conf.db, tbl)
-                    elif Backend.getIdentifiedDbms() in (DBMS.MYSQL, DBMS.PGSQL, DBMS.HSQLDB):
+                    elif Backend.getIdentifiedDbms() in (DBMS.MYSQL, DBMS.PGSQL, DBMS.HSQLDB, DBMS.H2):
                         query = rootQuery.inband.query % (colString, conf.db, tbl, prioritySortColumns(colList)[0])
                     else:
                         query = rootQuery.inband.query % (colString, conf.db, tbl)
@@ -402,7 +399,7 @@ class Entries:
                                     if column not in entries:
                                         entries[column] = BigArray()
 
-                                    if Backend.getIdentifiedDbms() in (DBMS.MYSQL, DBMS.PGSQL, DBMS.HSQLDB):
+                                    if Backend.getIdentifiedDbms() in (DBMS.MYSQL, DBMS.PGSQL, DBMS.HSQLDB, DBMS.H2):
                                         query = rootQuery.blind.query % (agent.preprocessField(tbl, column), conf.db, conf.tbl, sorted(colList, key=len)[0], index)
                                     elif Backend.getIdentifiedDbms() in (DBMS.ORACLE, DBMS.DB2):
                                         query = rootQuery.blind.query % (agent.preprocessField(tbl, column), tbl.upper() if not conf.db else ("%s.%s" % (conf.db.upper(), tbl.upper())), index)
@@ -447,13 +444,13 @@ class Entries:
                                                         "db": safeSQLIdentificatorNaming(conf.db)}
                     try:
                         attackDumpedTable()
-                    except (IOError, OSError), ex:
+                    except (IOError, OSError) as ex:
                         errMsg = "an error occurred while attacking "
                         errMsg += "table dump ('%s')" % getSafeExString(ex)
                         logger.critical(errMsg)
                     conf.dumper.dbTableValues(kb.data.dumpedTable)
 
-            except SqlmapConnectionException, ex:
+            except SqlmapConnectionException as ex:
                 errMsg = "connection exception detected in dumping phase "
                 errMsg += "('%s')" % getSafeExString(ex)
                 logger.critical(errMsg)
@@ -520,7 +517,7 @@ class Entries:
         choice = readInput(message, default='a')
 
         if not choice or choice in ('a', 'A'):
-            dumpFromDbs = dbs.keys()
+            dumpFromDbs = list(dbs.keys())
         elif choice in ('q', 'Q'):
             return
         else:
@@ -556,7 +553,7 @@ class Entries:
                     continue
 
                 conf.tbl = table
-                colList = filter(None, sorted(columns))
+                colList = [_ for _ in columns if _]
 
                 if conf.exclude:
                     colList = [_ for _ in colList if _ not in conf.exclude.split(',')]
@@ -587,7 +584,7 @@ class Entries:
         choice = readInput(message, default='a')
 
         if not choice or choice.lower() == 'a':
-            dumpFromDbs = tables.keys()
+            dumpFromDbs = list(tables.keys())
         elif choice.lower() == 'q':
             return
         else:

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2018 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
@@ -17,6 +17,7 @@ from lib.core.common import Backend
 from lib.core.common import extractErrorMessage
 from lib.core.common import extractRegexResult
 from lib.core.common import getPublicTypeMembers
+from lib.core.common import getSafeExString
 from lib.core.common import getUnicode
 from lib.core.common import isListLike
 from lib.core.common import randomStr
@@ -35,7 +36,6 @@ from lib.core.enums import PLACE
 from lib.core.exception import SqlmapCompressionException
 from lib.core.settings import BLOCKED_IP_REGEX
 from lib.core.settings import DEFAULT_COOKIE_DELIMITER
-from lib.core.settings import DEV_EMAIL_ADDRESS
 from lib.core.settings import EVENTVALIDATION_REGEX
 from lib.core.settings import MAX_CONNECTION_TOTAL_SIZE
 from lib.core.settings import META_CHARSET_REGEX
@@ -57,7 +57,7 @@ def forgeHeaders(items=None, base=None):
 
     items = items or {}
 
-    for _ in items.keys():
+    for _ in list(items.keys()):
         if items[_] is None:
             del items[_]
 
@@ -220,10 +220,6 @@ def checkCharEncoding(encoding, warn=True):
     try:
         codecs.lookup(encoding.encode(UNICODE_ENCODING) if isinstance(encoding, unicode) else encoding)
     except (LookupError, ValueError):
-        if warn and ' ' not in encoding:
-            warnMsg = "unknown web page charset '%s'. " % encoding
-            warnMsg += "Please report by e-mail to '%s'" % DEV_EMAIL_ADDRESS
-            singleTimeLogMessage(warnMsg, logging.WARN, encoding)
         encoding = None
 
     if encoding:
@@ -285,10 +281,10 @@ def decodePage(page, contentEncoding, contentType):
                     raise Exception("size too large")
 
             page = data.read()
-        except Exception, msg:
+        except Exception as ex:
             if "<html" not in page:  # in some cases, invalid "Content-Encoding" appears for plain HTML (should be ignored)
                 errMsg = "detected invalid data for declared content "
-                errMsg += "encoding '%s' ('%s')" % (contentEncoding, msg)
+                errMsg += "encoding '%s' ('%s')" % (contentEncoding, getSafeExString(ex))
                 singleTimeLogMessage(errMsg, logging.ERROR)
 
                 warnMsg = "turning off page compression"
@@ -317,43 +313,40 @@ def decodePage(page, contentEncoding, contentType):
 
     # can't do for all responses because we need to support binary files too
     if not isinstance(page, unicode) and "text/" in contentType:
-        if kb.heuristicMode:
-            kb.pageEncoding = kb.pageEncoding or checkCharEncoding(getHeuristicCharEncoding(page))
-            page = getUnicode(page, kb.pageEncoding)
-        else:
-            # e.g. &#195;&#235;&#224;&#226;&#224;
-            if "&#" in page:
-                page = re.sub(r"&#(\d{1,3});", lambda _: chr(int(_.group(1))) if int(_.group(1)) < 256 else _.group(0), page)
+        # e.g. &#x9;&#195;&#235;&#224;&#226;&#224;
+        if "&#" in page:
+            page = re.sub(r"&#x([0-9a-f]{1,2});", lambda _: (_.group(1) if len(_.group(1)) == 2 else "0%s" % _.group(1)).decode("hex"), page)
+            page = re.sub(r"&#(\d{1,3});", lambda _: chr(int(_.group(1))) if int(_.group(1)) < 256 else _.group(0), page)
 
-            # e.g. %20%28%29
-            if "%" in page:
-                page = re.sub(r"%([0-9a-fA-F]{2})", lambda _: _.group(1).decode("hex"), page)
+        # e.g. %20%28%29
+        if "%" in page:
+            page = re.sub(r"%([0-9a-fA-F]{2})", lambda _: _.group(1).decode("hex"), page)
 
-            # e.g. &amp;
-            page = re.sub(r"&([^;]+);", lambda _: chr(htmlEntities[_.group(1)]) if htmlEntities.get(_.group(1), 256) < 256 else _.group(0), page)
+        # e.g. &amp;
+        page = re.sub(r"&([^;]+);", lambda _: chr(htmlEntities[_.group(1)]) if htmlEntities.get(_.group(1), 256) < 256 else _.group(0), page)
 
-            kb.pageEncoding = kb.pageEncoding or checkCharEncoding(getHeuristicCharEncoding(page))
+        kb.pageEncoding = kb.pageEncoding or checkCharEncoding(getHeuristicCharEncoding(page))
 
-            if (kb.pageEncoding or "").lower() == "utf-8-sig":
-                kb.pageEncoding = "utf-8"
-                if page and page.startswith("\xef\xbb\xbf"):  # Reference: https://docs.python.org/2/library/codecs.html (Note: noticed problems when "utf-8-sig" is left to Python for handling)
-                    page = page[3:]
+        if (kb.pageEncoding or "").lower() == "utf-8-sig":
+            kb.pageEncoding = "utf-8"
+            if page and page.startswith("\xef\xbb\xbf"):  # Reference: https://docs.python.org/2/library/codecs.html (Note: noticed problems when "utf-8-sig" is left to Python for handling)
+                page = page[3:]
 
-            page = getUnicode(page, kb.pageEncoding)
+        page = getUnicode(page, kb.pageEncoding)
 
-            # e.g. &#8217;&#8230;&#8482;
-            if "&#" in page:
-                def _(match):
-                    retVal = match.group(0)
-                    try:
-                        retVal = unichr(int(match.group(1)))
-                    except ValueError:
-                        pass
-                    return retVal
-                page = re.sub(r"&#(\d+);", _, page)
+        # e.g. &#8217;&#8230;&#8482;
+        if "&#" in page:
+            def _(match):
+                retVal = match.group(0)
+                try:
+                    retVal = unichr(int(match.group(1)))
+                except (ValueError, OverflowError):
+                    pass
+                return retVal
+            page = re.sub(r"&#(\d+);", _, page)
 
-            # e.g. &zeta;
-            page = re.sub(r"&([^;]+);", lambda _: unichr(htmlEntities[_.group(1)]) if htmlEntities.get(_.group(1), 0) > 255 else _.group(0), page)
+        # e.g. &zeta;
+        page = re.sub(r"&([^;]+);", lambda _: unichr(htmlEntities[_.group(1)]) if htmlEntities.get(_.group(1), 0) > 255 else _.group(0), page)
 
     return page
 
@@ -390,7 +383,7 @@ def processResponse(page, responseHeaders, status=None):
                             continue
 
                         conf.paramDict[PLACE.POST][name] = value
-                conf.parameters[PLACE.POST] = re.sub(r"(?i)(%s=)[^&]+" % re.escape(name), r"\g<1>%s" % re.escape(value), conf.parameters[PLACE.POST])
+                conf.parameters[PLACE.POST] = re.sub(r"(?i)(%s=)[^&]+" % re.escape(name), r"\g<1>%s" % value.replace('\\', r'\\'), conf.parameters[PLACE.POST])
 
     if not kb.browserVerification and re.search(r"(?i)browser.?verification", page or ""):
         kb.browserVerification = True

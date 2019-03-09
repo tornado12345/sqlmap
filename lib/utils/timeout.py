@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2018 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
@@ -22,8 +22,8 @@ def timeout(func, args=(), kwargs={}, duration=1, default=None):
             try:
                 self.result = func(*args, **kwargs)
                 self.timeout_state = TIMEOUT_STATE.NORMAL
-            except Exception, msg:
-                logger.log(CUSTOM_LOGGING.TRAFFIC_IN, msg)
+            except Exception as ex:
+                logger.log(CUSTOM_LOGGING.TRAFFIC_IN, ex)
                 self.result = default
                 self.timeout_state = TIMEOUT_STATE.EXCEPTION
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2018 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
@@ -47,7 +47,7 @@ class Fingerprint(GenericFingerprint):
         value += "active fingerprint: %s" % actVer
 
         if kb.bannerFp:
-            banVer = kb.bannerFp["dbmsVersion"] if 'dbmsVersion' in kb.bannerFp else None
+            banVer = kb.bannerFp.get("dbmsVersion")
 
             if re.search(r"-log$", kb.data.banner):
                 banVer += ", logging enabled"
@@ -106,6 +106,13 @@ class Fingerprint(GenericFingerprint):
 
                 return False
             else:
+                result = inject.checkBooleanExpression("ZERO() IS 0")   # Note: check for H2 DBMS (sharing majority of same functions)
+                if result:
+                    warnMsg = "the back-end DBMS is not %s" % DBMS.HSQLDB
+                    logger.warn(warnMsg)
+
+                    return False
+
                 kb.data.has_information_schema = True
                 Backend.setVersion(">= 1.7.2")
                 setDbms("%s 1.7.2" % DBMS.HSQLDB)

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2018 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
@@ -48,11 +48,11 @@ class Fingerprint(GenericFingerprint):
             (50000, 50096),  # MySQL 5.0
             (50100, 50172),  # MySQL 5.1
             (50400, 50404),  # MySQL 5.4
-            (50500, 50558),  # MySQL 5.5
-            (50600, 50638),  # MySQL 5.6
-            (50700, 50720),  # MySQL 5.7
+            (50500, 50564),  # MySQL 5.5
+            (50600, 50644),  # MySQL 5.6
+            (50700, 50726),  # MySQL 5.7
             (60000, 60014),  # MySQL 6.0
-            (80000, 80003),  # MySQL 8.0
+            (80000, 80015),  # MySQL 8.0
         )
 
         index = -1
@@ -124,7 +124,7 @@ class Fingerprint(GenericFingerprint):
             value += "\n%scomment injection fingerprint: %s" % (blank, comVer)
 
         if kb.bannerFp:
-            banVer = kb.bannerFp["dbmsVersion"] if "dbmsVersion" in kb.bannerFp else None
+            banVer = kb.bannerFp.get("dbmsVersion")
 
             if banVer and re.search(r"-log$", kb.data.banner):
                 banVer += ", logging enabled"
@@ -183,8 +183,15 @@ class Fingerprint(GenericFingerprint):
             # reading information_schema on some platforms is causing annoying timeout exits
             # Reference: http://bugs.mysql.com/bug.php?id=15855
 
+            # Determine if it is MySQL >= 8.0.0
+            if inject.checkBooleanExpression("ISNULL(JSON_STORAGE_FREE(NULL))"):
+                kb.data.has_information_schema = True
+                Backend.setVersion(">= 8.0.0")
+                setDbms("%s 8" % DBMS.MYSQL)
+                self.getBanner()
+
             # Determine if it is MySQL >= 5.0.0
-            if inject.checkBooleanExpression("ISNULL(TIMESTAMPADD(MINUTE,[RANDNUM],NULL))"):
+            elif inject.checkBooleanExpression("ISNULL(TIMESTAMPADD(MINUTE,[RANDNUM],NULL))"):
                 kb.data.has_information_schema = True
                 Backend.setVersion(">= 5.0.0")
                 setDbms("%s 5" % DBMS.MYSQL)
@@ -196,9 +203,17 @@ class Fingerprint(GenericFingerprint):
                 infoMsg = "actively fingerprinting %s" % DBMS.MYSQL
                 logger.info(infoMsg)
 
-                # Check if it is MySQL >= 5.5.0
-                if inject.checkBooleanExpression("TO_SECONDS(950501)>0"):
-                    Backend.setVersion(">= 5.5.0")
+                # Check if it is MySQL >= 5.7
+                if inject.checkBooleanExpression("ISNULL(JSON_QUOTE(NULL))"):
+                    Backend.setVersion(">= 5.7")
+
+                # Check if it is MySQL >= 5.6
+                elif inject.checkBooleanExpression("ISNULL(VALIDATE_PASSWORD_STRENGTH(NULL))"):
+                    Backend.setVersion(">= 5.6")
+
+                # Check if it is MySQL >= 5.5
+                elif inject.checkBooleanExpression("TO_SECONDS(950501)>0"):
+                    Backend.setVersion(">= 5.5")
 
                 # Check if it is MySQL >= 5.1.2 and < 5.5.0
                 elif inject.checkBooleanExpression("@@table_open_cache=@@table_open_cache"):

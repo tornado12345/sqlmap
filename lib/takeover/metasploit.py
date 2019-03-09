@@ -1,9 +1,11 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2018 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
+
+from __future__ import print_function
 
 import os
 import re
@@ -20,7 +22,6 @@ from lib.core.common import dataToStdout
 from lib.core.common import Backend
 from lib.core.common import getLocalIP
 from lib.core.common import getRemoteIP
-from lib.core.common import getUnicode
 from lib.core.common import normalizePath
 from lib.core.common import ntToPosixSlashes
 from lib.core.common import pollProcess
@@ -39,7 +40,6 @@ from lib.core.exception import SqlmapGenericException
 from lib.core.settings import IS_WIN
 from lib.core.settings import METASPLOIT_SESSION_TIMEOUT
 from lib.core.settings import SHELLCODEEXEC_RANDOM_STRING_MARKER
-from lib.core.settings import UNICODE_ENCODING
 from lib.core.subprocessng import blockingReadFromFD
 from lib.core.subprocessng import blockingWriteToFD
 from lib.core.subprocessng import Popen as execute
@@ -168,19 +168,8 @@ class Metasploit:
 
         choice = readInput(message, default="%d" % default)
 
-        if not choice:
-            if lst:
-                choice = getUnicode(default, UNICODE_ENCODING)
-            else:
-                return default
-
-        elif not choice.isdigit():
-            logger.warn("invalid value, only digits are allowed")
-            return self._skeletonSelection(msg, lst, maxValue, default)
-
-        elif int(choice) > maxValue or int(choice) < 1:
-            logger.warn("invalid value, it must be a digit between 1 and %d" % maxValue)
-            return self._skeletonSelection(msg, lst, maxValue, default)
+        if not choice or not choice.isdigit() or int(choice) > maxValue or int(choice) < 1:
+            choice = default
 
         choice = int(choice)
 
@@ -496,7 +485,7 @@ class Metasploit:
         send_all(proc, "getuid\n")
 
         if conf.privEsc:
-            print
+            print()
 
             infoMsg = "trying to escalate privileges using Meterpreter "
             infoMsg += "'getsystem' command which tries different "
@@ -569,7 +558,7 @@ class Metasploit:
 
                 # For --os-pwn and --os-bof
                 pwnBofCond = self.connectionStr.startswith("reverse")
-                pwnBofCond &= "Starting the payload handler" in out
+                pwnBofCond &= any(_ in out for _ in ("Starting the payload handler", "Started reverse"))
 
                 # For --os-smbrelay
                 smbRelayCond = "Server started" in out
@@ -632,7 +621,7 @@ class Metasploit:
             payloadSize = int(match.group(2))
 
             if extra == "BufferRegister=EAX":
-                payloadSize = payloadSize / 2
+                payloadSize = payloadSize // 2
 
             debugMsg = "the shellcode size is %d bytes" % payloadSize
             logger.debug(debugMsg)

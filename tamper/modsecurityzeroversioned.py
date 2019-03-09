@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2018 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
@@ -18,7 +18,7 @@ def dependencies():
 
 def tamper(payload, **kwargs):
     """
-    Embraces complete query with zero-versioned comment
+    Embraces complete query with (MySQL) zero-versioned comment
 
     Requirement:
         * MySQL
@@ -27,7 +27,7 @@ def tamper(payload, **kwargs):
         * MySQL 5.0
 
     Notes:
-        * Useful to bypass ModSecurity WAF/IDS
+        * Useful to bypass ModSecurity WAF
 
     >>> tamper('1 AND 2>1--')
     '1 /*!00000AND 2>1*/--'

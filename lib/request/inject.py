@@ -1,9 +1,11 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2018 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
+
+from __future__ import print_function
 
 import re
 import time
@@ -76,6 +78,9 @@ def _goInference(payload, expression, charsetType=None, firstChar=None, lastChar
     count = 0
 
     value = _goDns(payload, expression)
+
+    if payload is None:
+        return None
 
     if value is not None:
         return value
@@ -274,7 +279,7 @@ def _goInferenceProxy(expression, fromUser=False, batch=False, unpack=True, char
                         raise SqlmapDataException(errMsg)
 
                 except KeyboardInterrupt:
-                    print
+                    print()
                     warnMsg = "user aborted during dumping phase"
                     logger.warn(warnMsg)
 
@@ -341,8 +346,13 @@ def getValue(expression, blind=True, union=True, error=True, time=True, fromUser
     affected parameter.
     """
 
-    if conf.hexConvert:
-        charsetType = CHARSET_TYPE.HEXADECIMAL
+    if conf.hexConvert and expected != EXPECTED.BOOL and Backend.getIdentifiedDbms():
+        if not hasattr(queries[Backend.getIdentifiedDbms()], "hex"):
+            warnMsg = "switch '--hex' is currently not supported on DBMS %s" % Backend.getIdentifiedDbms()
+            singleTimeWarnMessage(warnMsg)
+            conf.hexConvert = False
+        else:
+            charsetType = CHARSET_TYPE.HEXADECIMAL
 
     kb.safeCharEncode = safeCharEncode
     kb.resumeValues = resumeValue
@@ -437,7 +447,8 @@ def getValue(expression, blind=True, union=True, error=True, time=True, fromUser
                 found = (value is not None) or (value is None and expectingNone) or count >= MAX_TECHNIQUES_PER_VALUE
 
             if time and (isTechniqueAvailable(PAYLOAD.TECHNIQUE.TIME) or isTechniqueAvailable(PAYLOAD.TECHNIQUE.STACKED)) and not found:
-                kb.responseTimeMode = re.sub(r"(?i)[^a-z]", "", re.sub(r"'[^']+'", "", re.sub(r"(?i)(\w+)\(.+\)", r"\g<1>", expression))) if re.search(r"(?i)SELECT.+FROM", expression) else None
+                match = re.search(r"\bFROM\b ([^ ]+).+ORDER BY ([^ ]+)", expression)
+                kb.responseTimeMode = "%s|%s" % (match.group(1), match.group(2)) if match else None
 
                 if isTechniqueAvailable(PAYLOAD.TECHNIQUE.TIME):
                     kb.technique = PAYLOAD.TECHNIQUE.TIME

@@ -1,9 +1,11 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2018 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
+
+from __future__ import print_function
 
 import os
 import re
@@ -29,6 +31,7 @@ from lib.core.exception import SqlmapShellQuitException
 from lib.core.exception import SqlmapSyntaxException
 from lib.core.settings import BASIC_HELP_ITEMS
 from lib.core.settings import DUMMY_URL
+from lib.core.settings import INFERENCE_UNKNOWN_CHAR
 from lib.core.settings import IS_WIN
 from lib.core.settings import MAX_HELP_OPTION_LENGTH
 from lib.core.settings import VERSION_STRING
@@ -99,16 +102,16 @@ def cmdLineParser(argv=None):
                            help="Force usage of given HTTP method (e.g. PUT)")
 
         request.add_option("--data", dest="data",
-                           help="Data string to be sent through POST")
+                           help="Data string to be sent through POST (e.g. \"id=1\")")
 
         request.add_option("--param-del", dest="paramDel",
-                           help="Character used for splitting parameter values")
+                           help="Character used for splitting parameter values (e.g. &)")
 
         request.add_option("--cookie", dest="cookie",
-                           help="HTTP Cookie header value")
+                           help="HTTP Cookie header value (e.g. \"PHPSESSID=a8d127e..\")")
 
         request.add_option("--cookie-del", dest="cookieDel",
-                           help="Character used for splitting cookie values")
+                           help="Character used for splitting cookie values (e.g. ;)")
 
         request.add_option("--load-cookies", dest="loadCookies",
                            help="File containing cookies in Netscape/wget format")
@@ -144,7 +147,7 @@ def cmdLineParser(argv=None):
                            help="HTTP authentication PEM cert/private key file")
 
         request.add_option("--ignore-code", dest="ignoreCode", type="int",
-                           help="Ignore HTTP error code (e.g. 401)")
+                           help="Ignore (problematic) HTTP error code (e.g. 401)")
 
         request.add_option("--ignore-proxy", dest="ignoreProxy", action="store_true",
                            help="Ignore system default proxy settings")
@@ -207,7 +210,7 @@ def cmdLineParser(argv=None):
                            help="Parameter used to hold anti-CSRF token")
 
         request.add_option("--csrf-url", dest="csrfUrl",
-                           help="URL address to visit to extract anti-CSRF token")
+                           help="URL address to visit for extraction of anti-CSRF token")
 
         request.add_option("--force-ssl", dest="forceSSL", action="store_true",
                            help="Force usage of SSL/HTTPS")
@@ -253,13 +256,13 @@ def cmdLineParser(argv=None):
                              help="Regexp to exclude parameters from testing (e.g. \"ses\")")
 
         injection.add_option("--dbms", dest="dbms",
-                             help="Force back-end DBMS to this value")
+                             help="Force back-end DBMS to provided value")
 
         injection.add_option("--dbms-cred", dest="dbmsCred",
                              help="DBMS authentication credentials (user:password)")
 
         injection.add_option("--os", dest="os",
-                             help="Force back-end DBMS operating system to this value")
+                             help="Force back-end DBMS operating system to provided value")
 
         injection.add_option("--invalid-bignum", dest="invalidBignum", action="store_true",
                              help="Use big numbers for invalidating values")
@@ -333,8 +336,11 @@ def cmdLineParser(argv=None):
         techniques.add_option("--dns-domain", dest="dnsDomain",
                               help="Domain name used for DNS exfiltration attack")
 
-        techniques.add_option("--second-order", dest="secondOrder",
+        techniques.add_option("--second-url", dest="secondUrl",
                               help="Resulting page URL searched for second-order response")
+
+        techniques.add_option("--second-req", dest="secondReq",
+                              help="Load second-order HTTP request from file")
 
         # Fingerprint options
         fingerprint = OptionGroup(parser, "Fingerprint")
@@ -400,7 +406,7 @@ def cmdLineParser(argv=None):
                                help="Search column(s), table(s) and/or database name(s)")
 
         enumeration.add_option("--comments", dest="getComments", action="store_true",
-                               help="Retrieve DBMS comments")
+                               help="Check for DBMS comments during enumeration")
 
         enumeration.add_option("-D", dest="db",
                                help="DBMS database to enumerate")
@@ -468,13 +474,13 @@ def cmdLineParser(argv=None):
         # File system options
         filesystem = OptionGroup(parser, "File system access", "These options can be used to access the back-end database management system underlying file system")
 
-        filesystem.add_option("--file-read", dest="rFile",
+        filesystem.add_option("--file-read", dest="fileRead",
                               help="Read a file from the back-end DBMS file system")
 
-        filesystem.add_option("--file-write", dest="wFile",
+        filesystem.add_option("--file-write", dest="fileWrite",
                               help="Write a local file on the back-end DBMS file system")
 
-        filesystem.add_option("--file-dest", dest="dFile",
+        filesystem.add_option("--file-dest", dest="fileDest",
                               help="Back-end DBMS absolute filepath to write to")
 
         # Takeover options
@@ -581,13 +587,19 @@ def cmdLineParser(argv=None):
                            help="Log all HTTP traffic into a HAR file")
 
         general.add_option("--hex", dest="hexConvert", action="store_true",
-                           help="Use DBMS hex function(s) for data retrieval")
+                           help="Use hex conversion during data retrieval")
 
         general.add_option("--output-dir", dest="outputDir", action="store",
                            help="Custom output directory path")
 
         general.add_option("--parse-errors", dest="parseErrors", action="store_true",
                            help="Parse and display DBMS error messages from responses")
+
+        general.add_option("--preprocess", dest="preprocess",
+                             help="Use given script(s) for preprocessing of response data")
+
+        general.add_option("--repair", dest="repair", action="store_true",
+                           help="Redump entries having unknown character marker (%s)" % INFERENCE_UNKNOWN_CHAR)
 
         general.add_option("--save", dest="saveConfig",
                            help="Save options to a configuration INI file")
@@ -614,7 +626,7 @@ def cmdLineParser(argv=None):
                                  help="Run host OS command(s) when SQL injection is found")
 
         miscellaneous.add_option("--answers", dest="answers",
-                                 help="Set question answers (e.g. \"quit=N,follow=N\")")
+                                 help="Set predefined answers (e.g. \"quit=N,follow=N\")")
 
         miscellaneous.add_option("--beep", dest="beep", action="store_true",
                                  help="Beep on question and/or when SQL injection is found")
@@ -623,7 +635,7 @@ def cmdLineParser(argv=None):
                                  help="Clean up the DBMS from sqlmap specific UDF and tables")
 
         miscellaneous.add_option("--dependencies", dest="dependencies", action="store_true",
-                                 help="Check for missing (non-core) sqlmap dependencies")
+                                 help="Check for missing (optional) sqlmap dependencies")
 
         miscellaneous.add_option("--disable-coloring", dest="disableColoring", action="store_true",
                                  help="Disable console output coloring")
@@ -632,7 +644,10 @@ def cmdLineParser(argv=None):
                                  help="Use Google dork results from specified page number")
 
         miscellaneous.add_option("--identify-waf", dest="identifyWaf", action="store_true",
-                                 help="Make a thorough testing for a WAF/IPS/IDS protection")
+                                 help="Make a thorough testing for a WAF/IPS protection")
+
+        miscellaneous.add_option("--list-tampers", dest="listTampers", action="store_true",
+                                 help="Display list of available tamper scripts")
 
         miscellaneous.add_option("--mobile", dest="mobile", action="store_true",
                                  help="Imitate smartphone through HTTP User-Agent header")
@@ -640,11 +655,11 @@ def cmdLineParser(argv=None):
         miscellaneous.add_option("--offline", dest="offline", action="store_true",
                                  help="Work in offline mode (only use session data)")
 
-        miscellaneous.add_option("--purge-output", dest="purgeOutput", action="store_true",
-                                 help="Safely remove all content from output directory")
+        miscellaneous.add_option("--purge", dest="purge", action="store_true",
+                                 help="Safely remove all content from sqlmap data directory")
 
         miscellaneous.add_option("--skip-waf", dest="skipWaf", action="store_true",
-                                 help="Skip heuristic detection of WAF/IPS/IDS protection")
+                                 help="Skip heuristic detection of WAF/IPS protection")
 
         miscellaneous.add_option("--smart", dest="smart", action="store_true",
                                  help="Conduct thorough tests only if positive heuristic(s)")
@@ -662,6 +677,10 @@ def cmdLineParser(argv=None):
                                  help="Simple wizard interface for beginner users")
 
         # Hidden and/or experimental options
+        parser.add_option("--crack", dest="hashFile",
+                          help=SUPPRESS_HELP)
+#                          help="Load and crack hashes from a file (standalone)")
+
         parser.add_option("--dummy", dest="dummy", action="store_true",
                           help=SUPPRESS_HELP)
 
@@ -747,6 +766,7 @@ def cmdLineParser(argv=None):
         prompt = False
         advancedHelp = True
         extraHeaders = []
+        tamperIndex = None
 
         # Reference: https://stackoverflow.com/a/4012683 (Note: previously used "...sys.getfilesystemencoding() or UNICODE_ENCODING")
         for arg in argv:
@@ -781,7 +801,7 @@ def cmdLineParser(argv=None):
                     command = raw_input("sqlmap-shell> ").strip()
                     command = getUnicode(command, encoding=sys.stdin.encoding)
                 except (KeyboardInterrupt, EOFError):
-                    print
+                    print()
                     raise SqlmapShellQuitException
 
                 if not command:
@@ -803,7 +823,7 @@ def cmdLineParser(argv=None):
             try:
                 for arg in shlex.split(command):
                     argv.append(getUnicode(arg, encoding=sys.stdin.encoding))
-            except ValueError, ex:
+            except ValueError as ex:
                 raise SqlmapSyntaxException("something went wrong during command line parsing ('%s')" % ex.message)
 
         for i in xrange(len(argv)):
@@ -818,6 +838,12 @@ def cmdLineParser(argv=None):
             elif re.search(r"\A-\w=.+", argv[i]):
                 dataToStdout("[!] potentially miswritten (illegal '=') short option detected ('%s')\n" % argv[i])
                 raise SystemExit
+            elif argv[i].startswith("--tamper"):
+                if tamperIndex is None:
+                    tamperIndex = i if '=' in argv[i] else (i + 1 if i + 1 < len(argv) and not argv[i + 1].startswith('-') else None)
+                else:
+                    argv[tamperIndex] = "%s,%s" % (argv[tamperIndex], argv[i].split('=')[1] if '=' in argv[i] else (argv[i + 1] if i + 1 < len(argv) and not argv[i + 1].startswith('-') else ""))
+                    argv[i] = ""
             elif argv[i] == "-H":
                 if i + 1 < len(argv):
                     extraHeaders.append(argv[i + 1])
@@ -825,7 +851,7 @@ def cmdLineParser(argv=None):
                 argv[i] = argv[i][:-1]
                 conf.skipThreadCheck = True
             elif argv[i] == "--version":
-                print VERSION_STRING.split('/')[-1]
+                print(VERSION_STRING.split('/')[-1])
                 raise SystemExit
             elif argv[i] in ("-h", "--help"):
                 advancedHelp = False
@@ -849,7 +875,7 @@ def cmdLineParser(argv=None):
 
         try:
             (args, _) = parser.parse_args(argv)
-        except UnicodeEncodeError, ex:
+        except UnicodeEncodeError as ex:
             dataToStdout("\n[!] %s\n" % ex.object.encode("unicode-escape"))
             raise SystemExit
         except SystemExit:
@@ -871,15 +897,15 @@ def cmdLineParser(argv=None):
         if args.dummy:
             args.url = args.url or DUMMY_URL
 
-        if not any((args.direct, args.url, args.logFile, args.bulkFile, args.googleDork, args.configFile, args.requestFile, args.updateAll, args.smokeTest, args.liveTest, args.wizard, args.dependencies, args.purgeOutput, args.sitemapUrl)):
-            errMsg = "missing a mandatory option (-d, -u, -l, -m, -r, -g, -c, -x, --wizard, --update, --purge-output or --dependencies), "
-            errMsg += "use -h for basic or -hh for advanced help\n"
+        if not any((args.direct, args.url, args.logFile, args.bulkFile, args.googleDork, args.configFile, args.requestFile, args.updateAll, args.smokeTest, args.liveTest, args.wizard, args.dependencies, args.purge, args.sitemapUrl, args.listTampers, args.hashFile)):
+            errMsg = "missing a mandatory option (-d, -u, -l, -m, -r, -g, -c, -x, --list-tampers, --wizard, --update, --purge or --dependencies). "
+            errMsg += "Use -h for basic and -hh for advanced help\n"
             parser.error(errMsg)
 
         return args
 
-    except (OptionError, TypeError), e:
-        parser.error(e)
+    except (OptionError, TypeError) as ex:
+        parser.error(ex)
 
     except SystemExit:
         # Protection against Windows dummy double clicking

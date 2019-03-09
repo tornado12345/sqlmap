@@ -1,9 +1,11 @@
 #!/usr/bin/env python
 
-# Copyright (c) 2006-2018 sqlmap developers (http://sqlmap.org/)
+# Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
 # See the file 'LICENSE' for copying permission
 
 # Removes duplicate entries in wordlist like files
+
+from __future__ import print_function
 
 import sys
 
@@ -17,7 +19,7 @@ if len(sys.argv) > 0:
                 str.encode(item)
                 if item in items:
                     if item:
-                        print item
+                        print(item)
                 else:
                     items.append(item)
             except:

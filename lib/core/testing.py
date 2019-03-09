@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2018 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
@@ -17,6 +17,7 @@ import traceback
 
 from extra.beep.beep import beep
 from lib.controller.controller import start
+from lib.core.common import checkIntegrity
 from lib.core.common import clearConsoleLine
 from lib.core.common import dataToStdout
 from lib.core.common import getUnicode
@@ -51,6 +52,9 @@ def smokeTest():
     retVal = True
     count, length = 0, 0
 
+    if not checkIntegrity():
+        retVal = False
+
     for root, _, files in os.walk(paths.SQLMAP_ROOT_PATH):
         if any(_ in root for _ in ("thirdparty", "extra")):
             continue
@@ -71,10 +75,10 @@ def smokeTest():
                 try:
                     __import__(path)
                     module = sys.modules[path]
-                except Exception, msg:
+                except Exception as ex:
                     retVal = False
                     dataToStdout("\r")
-                    errMsg = "smoke test failed at importing module '%s' (%s):\n%s" % (path, os.path.join(root, filename), msg)
+                    errMsg = "smoke test failed at importing module '%s' (%s):\n%s" % (path, os.path.join(root, filename), ex)
                     logger.error(errMsg)
                 else:
                     # Run doc tests
@@ -271,10 +275,10 @@ def runCase(parse):
         result = start()
     except KeyboardInterrupt:
         pass
-    except SqlmapBaseException, e:
-        handled_exception = e
-    except Exception, e:
-        unhandled_exception = e
+    except SqlmapBaseException as ex:
+        handled_exception = ex
+    except Exception as ex:
+        unhandled_exception = ex
     finally:
         sys.stdout.seek(0)
         console = sys.stdout.read()

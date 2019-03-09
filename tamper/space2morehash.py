@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2018 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
@@ -23,8 +23,7 @@ def dependencies():
 
 def tamper(payload, **kwargs):
     """
-    Replaces space character (' ') with a pound character ('#') followed by
-    a random string and a new line ('\n')
+    Replaces (MySQL) instances of space character (' ') with a pound character ('#') followed by a random string and a new line ('\n')
 
     Requirement:
         * MySQL >= 5.1.13

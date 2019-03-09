@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2018 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
@@ -43,6 +43,7 @@ class DBMS:
     SQLITE = "SQLite"
     SYBASE = "Sybase"
     HSQLDB = "HSQLDB"
+    H2 = "H2"
     INFORMIX = "Informix"
 
 class DBMS_DIRECTORY_NAME:
@@ -57,6 +58,7 @@ class DBMS_DIRECTORY_NAME:
     SQLITE = "sqlite"
     SYBASE = "sybase"
     HSQLDB = "hsqldb"
+    H2 = "h2"
     INFORMIX = "informix"
 
 class CUSTOM_LOGGING:
@@ -154,13 +156,17 @@ class HASH:
 
 # Reference: http://www.zytrax.com/tech/web/mobile_ids.html
 class MOBILES:
-    BLACKBERRY = ("BlackBerry 9900", "Mozilla/5.0 (BlackBerry; U; BlackBerry 9900; en) AppleWebKit/534.11+ (KHTML, like Gecko) Version/7.1.0.346 Mobile Safari/534.11+")
-    GALAXY = ("Samsung Galaxy S", "Mozilla/5.0 (Linux; U; Android 2.2; en-US; SGH-T959D Build/FROYO) AppleWebKit/533.1 (KHTML, like Gecko) Version/4.0 Mobile Safari/533.1")
+    BLACKBERRY = ("BlackBerry Z10", "Mozilla/5.0 (BB10; Kbd) AppleWebKit/537.35+ (KHTML, like Gecko) Version/10.3.3.2205 Mobile Safari/537.35+")
+    GALAXY = ("Samsung Galaxy S7", "Mozilla/5.0 (Linux; Android 7.0; SM-G930V Build/NRD90M) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/59.0.3071.125 Mobile Safari/537.36")
     HP = ("HP iPAQ 6365", "Mozilla/4.0 (compatible; MSIE 4.01; Windows CE; PPC; 240x320; HP iPAQ h6300)")
-    HTC = ("HTC Sensation", "Mozilla/5.0 (Linux; U; Android 4.0.3; de-ch; HTC Sensation Build/IML74K) AppleWebKit/534.30 (KHTML, like Gecko) Version/4.0 Mobile Safari/534.30")
-    IPHONE = ("Apple iPhone 4s", "Mozilla/5.0 (iPhone; CPU iPhone OS 5_1 like Mac OS X) AppleWebKit/534.46 (KHTML, like Gecko) Version/5.1 Mobile/9B179 Safari/7534.48.3")
+    HTC = ("HTC 10", "Mozilla/5.0 (Linux; Android 8.0.0; HTC 10 Build/OPR1.170623.027) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.100 Mobile Safari/537.36")
+    HUAWEI = ("Huawei P8", "Mozilla/5.0 (Linux; Android 4.4.4; HUAWEI H891L Build/HuaweiH891L) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/33.0.0.0 Mobile Safari/537.36")
+    IPHONE = ("Apple iPhone 8", "Mozilla/5.0 (iPhone; CPU iPhone OS 11_0 like Mac OS X) AppleWebKit/604.1.38 (KHTML, like Gecko) Version/11.0 Mobile/15A372 Safari/604.1")
+    LUMIA = ("Microsoft Lumia 950", "Mozilla/5.0 (Windows Phone 10.0; Android 6.0.1; Microsoft; Lumia 950) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/52.0.2743.116 Mobile Safari/537.36 Edge/15.14977")
     NEXUS = ("Google Nexus 7", "Mozilla/5.0 (Linux; Android 4.1.1; Nexus 7 Build/JRO03D) AppleWebKit/535.19 (KHTML, like Gecko) Chrome/18.0.1025.166 Safari/535.19")
     NOKIA = ("Nokia N97", "Mozilla/5.0 (SymbianOS/9.4; Series60/5.0 NokiaN97-1/10.0.012; Profile/MIDP-2.1 Configuration/CLDC-1.1; en-us) AppleWebKit/525 (KHTML, like Gecko) WicKed/7.1.12344")
+    PIXEL = ("Google Pixel", "Mozilla/5.0 (Linux; Android 8.0.0; Pixel Build/OPR3.170623.013) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/63.0.3239.111 Mobile Safari/537.36")
+    XIAOMI = ("Xiaomi Mi 3", "Mozilla/5.0 (Linux; U; Android 4.4.4; en-gb; MI 3W Build/KTU84P) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/39.0.0.0 Mobile Safari/537.36 XiaoMi/MiuiBrowser/2.1.1")
 
 class PROXY_TYPE:
     HTTP = "HTTP"
@@ -256,6 +262,7 @@ class PAYLOAD:
         3: "LIKE single quoted string",
         4: "Double quoted string",
         5: "LIKE double quoted string",
+        6: "Identifier (e.g. column name)",
     }
 
     RISK = {
@@ -275,6 +282,7 @@ class PAYLOAD:
         6: "TOP",
         7: "Table name",
         8: "Column name",
+        9: "Pre-WHERE (non-query)",
     }
 
     class METHOD:
@@ -306,7 +314,7 @@ class ADJUST_TIME_DELAY:
     NO = 0
     YES = 1
 
-class WEB_API:
+class WEB_PLATFORM:
     PHP = "php"
     ASP = "asp"
     ASPX = "aspx"
@@ -340,34 +348,6 @@ class CONTENT_TYPE:
     OS_CMD = 24
     REG_READ = 25
 
-PART_RUN_CONTENT_TYPES = {
-    "checkDbms": CONTENT_TYPE.TECHNIQUES,
-    "getFingerprint": CONTENT_TYPE.DBMS_FINGERPRINT,
-    "getBanner": CONTENT_TYPE.BANNER,
-    "getCurrentUser": CONTENT_TYPE.CURRENT_USER,
-    "getCurrentDb": CONTENT_TYPE.CURRENT_DB,
-    "getHostname": CONTENT_TYPE.HOSTNAME,
-    "isDba": CONTENT_TYPE.IS_DBA,
-    "getUsers": CONTENT_TYPE.USERS,
-    "getPasswordHashes": CONTENT_TYPE.PASSWORDS,
-    "getPrivileges": CONTENT_TYPE.PRIVILEGES,
-    "getRoles": CONTENT_TYPE.ROLES,
-    "getDbs": CONTENT_TYPE.DBS,
-    "getTables": CONTENT_TYPE.TABLES,
-    "getColumns": CONTENT_TYPE.COLUMNS,
-    "getSchema": CONTENT_TYPE.SCHEMA,
-    "getCount": CONTENT_TYPE.COUNT,
-    "dumpTable": CONTENT_TYPE.DUMP_TABLE,
-    "search": CONTENT_TYPE.SEARCH,
-    "sqlQuery": CONTENT_TYPE.SQL_QUERY,
-    "tableExists": CONTENT_TYPE.COMMON_TABLES,
-    "columnExists": CONTENT_TYPE.COMMON_COLUMNS,
-    "readFile": CONTENT_TYPE.FILE_READ,
-    "writeFile": CONTENT_TYPE.FILE_WRITE,
-    "osCmd": CONTENT_TYPE.OS_CMD,
-    "regRead": CONTENT_TYPE.REG_READ
-}
-
 class CONTENT_STATUS:
     IN_PROGRESS = 0
     COMPLETE = 1
@@ -382,6 +362,7 @@ class AUTOCOMPLETE_TYPE:
     SQL = 0
     OS = 1
     SQLMAP = 2
+    API = 3
 
 class NOTE:
     FALSE_POSITIVE_OR_UNEXPLOITABLE = "false positive or unexploitable"
@@ -396,8 +377,13 @@ class MKSTEMP_PREFIX:
     COOKIE_JAR = "sqlmapcookiejar-"
     BIG_ARRAY = "sqlmapbigarray-"
     SPECIFIC_RESPONSE = "sqlmapresponse-"
+    PREPROCESS = "sqlmappreprocess-"
 
 class TIMEOUT_STATE:
     NORMAL = 0
     EXCEPTION = 1
     TIMEOUT = 2
+
+class HINT:
+    PREPEND = 0
+    APPEND = 1

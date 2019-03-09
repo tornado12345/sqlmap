@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2018 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
@@ -69,6 +69,9 @@ def bisection(payload, expression, length=None, charsetType=None, firstChar=None
     finalValue = None
     retrievedLength = 0
 
+    if payload is None:
+        return 0, None
+
     if charsetType is None and conf.charset:
         asciiTbl = sorted(set(ord(_) for _ in conf.charset))
     else:
@@ -79,7 +82,9 @@ def bisection(payload, expression, length=None, charsetType=None, firstChar=None
     retVal = hashDBRetrieve(expression, checkConf=True)
 
     if retVal:
-        if PARTIAL_HEX_VALUE_MARKER in retVal:
+        if conf.repair and INFERENCE_UNKNOWN_CHAR in retVal:
+            pass
+        elif PARTIAL_HEX_VALUE_MARKER in retVal:
             retVal = retVal.replace(PARTIAL_HEX_VALUE_MARKER, "")
 
             if retVal and conf.hexConvert:
@@ -187,7 +192,7 @@ def bisection(payload, expression, length=None, charsetType=None, firstChar=None
             with hintlock:
                 hintValue = kb.hintValue
 
-            if hintValue is not None and len(hintValue) >= idx:
+            if payload is not None and hintValue is not None and len(hintValue) >= idx:
                 if Backend.getIdentifiedDbms() in (DBMS.SQLITE, DBMS.ACCESS, DBMS.MAXDB, DBMS.DB2):
                     posValue = hintValue[idx - 1]
                 else:
@@ -469,7 +474,6 @@ def bisection(payload, expression, length=None, charsetType=None, firstChar=None
                             currentCharIndex = threadData.shared.index[0]
 
                         if kb.threadContinue:
-                            start = time.time()
                             val = getChar(currentCharIndex, asciiTbl, not(charsetType is None and conf.charset))
                             if val is None:
                                 val = INFERENCE_UNKNOWN_CHAR
@@ -482,7 +486,7 @@ def bisection(payload, expression, length=None, charsetType=None, firstChar=None
 
                         if kb.threadContinue:
                             if showEta:
-                                progress.progress(calculateDeltaSeconds(start), threadData.shared.index[0])
+                                progress.progress(threadData.shared.index[0])
                             elif conf.verbose >= 1:
                                 startCharIndex = 0
                                 endCharIndex = 0
@@ -499,7 +503,7 @@ def bisection(payload, expression, length=None, charsetType=None, firstChar=None
                                 count = threadData.shared.start
 
                                 for i in xrange(startCharIndex, endCharIndex + 1):
-                                    output += '_' if currentValue[i] is None else currentValue[i]
+                                    output += '_' if currentValue[i] is None else filterControlChars(currentValue[i] if len(currentValue[i]) == 1 else ' ', replacement=' ')
 
                                 for i in xrange(length):
                                     count += 1 if currentValue[i] is not None else 0
@@ -516,7 +520,7 @@ def bisection(payload, expression, length=None, charsetType=None, firstChar=None
                                     status = ' %d/%d (%d%%)' % (_, length, int(100.0 * _ / length))
                                     output += status if _ != length else " " * len(status)
 
-                                    dataToStdout("\r[%s] [INFO] retrieved: %s" % (time.strftime("%X"), filterControlChars(output)))
+                                    dataToStdout("\r[%s] [INFO] retrieved: %s" % (time.strftime("%X"), output))
 
                 runThreads(numThreads, blindThread, startThreadMsg=False)
 
@@ -550,7 +554,6 @@ def bisection(payload, expression, length=None, charsetType=None, firstChar=None
 
             while True:
                 index += 1
-                start = time.time()
 
                 # Common prediction feature (a.k.a. "good samaritan")
                 # NOTE: to be used only when multi-threading is not set for
@@ -575,7 +578,7 @@ def bisection(payload, expression, length=None, charsetType=None, firstChar=None
                         # Did we have luck?
                         if result:
                             if showEta:
-                                progress.progress(calculateDeltaSeconds(start), len(commonValue))
+                                progress.progress(len(commonValue))
                             elif conf.verbose in (1, 2) or conf.api:
                                 dataToStdout(filterControlChars(commonValue[index - 1:]))
 
@@ -625,13 +628,16 @@ def bisection(payload, expression, length=None, charsetType=None, firstChar=None
                 threadData.shared.value = partialValue = partialValue + val
 
                 if showEta:
-                    progress.progress(calculateDeltaSeconds(start), index)
+                    progress.progress(index)
                 elif conf.verbose in (1, 2) or conf.api:
                     dataToStdout(filterControlChars(val))
 
                 # some DBMSes (e.g. Firebird, DB2, etc.) have issues with trailing spaces
-                if len(partialValue) > INFERENCE_BLANK_BREAK and partialValue[-INFERENCE_BLANK_BREAK:].isspace() and partialValue.strip(' ')[-1:] != '\n':
+                if len(partialValue) > INFERENCE_BLANK_BREAK and partialValue[-INFERENCE_BLANK_BREAK:].isspace():
                     finalValue = partialValue[:-INFERENCE_BLANK_BREAK]
+                    break
+                elif charsetType and partialValue[-1:].isspace():
+                    finalValue = partialValue[:-1]
                     break
 
                 if (lastChar > 0 and index >= lastChar):
@@ -644,7 +650,6 @@ def bisection(payload, expression, length=None, charsetType=None, firstChar=None
         abortedFlag = True
     finally:
         kb.prependFlag = False
-        kb.stickyLevel = None
         retrievedLength = len(finalValue or "")
 
         if finalValue is not None:

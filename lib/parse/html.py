@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2018 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
@@ -9,6 +9,7 @@ import re
 
 from xml.sax.handler import ContentHandler
 
+from lib.core.common import urldecode
 from lib.core.common import parseXmlFile
 from lib.core.data import kb
 from lib.core.data import paths
@@ -26,6 +27,7 @@ class HTMLHandler(ContentHandler):
         self._dbms = None
         self._page = (page or "")
         self._lower_page = self._page.lower()
+        self._urldecoded_page = urldecode(self._page)
 
         self.dbms = None
 
@@ -47,7 +49,7 @@ class HTMLHandler(ContentHandler):
                 keywords = sorted(keywords, key=len)
                 kb.cache.regex[regexp] = keywords[-1].lower()
 
-            if kb.cache.regex[regexp] in self._lower_page and re.search(regexp, self._page, re.I):
+            if kb.cache.regex[regexp] in self._lower_page and re.search(regexp, self._urldecoded_page, re.I):
                 self.dbms = self._dbms
                 self._markAsErrorPage()
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2018 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
@@ -46,9 +46,9 @@ class Fingerprint(GenericFingerprint):
         value += "active fingerprint: %s" % actVer
 
         if kb.bannerFp:
-            release = kb.bannerFp["dbmsRelease"] if 'dbmsRelease' in kb.bannerFp else None
-            version = kb.bannerFp["dbmsVersion"] if 'dbmsVersion' in kb.bannerFp else None
-            servicepack = kb.bannerFp["dbmsServicePack"] if 'dbmsServicePack' in kb.bannerFp else None
+            release = kb.bannerFp.get("dbmsRelease")
+            version = kb.bannerFp.get("dbmsVersion")
+            servicepack = kb.bannerFp.get("dbmsServicePack")
 
             if release and version and servicepack:
                 banVer = "%s %s " % (DBMS.MSSQL, release)
@@ -136,8 +136,8 @@ class Fingerprint(GenericFingerprint):
         self.createSupportTbl(self.fileTblName, self.tblField, "varchar(1000)")
         inject.goStacked("INSERT INTO %s(%s) VALUES (%s)" % (self.fileTblName, self.tblField, "@@VERSION"))
 
-        # Reference: http://en.wikipedia.org/wiki/Comparison_of_Microsoft_Windows_versions
-        # http://en.wikipedia.org/wiki/Windows_NT#Releases
+        # Reference: https://en.wikipedia.org/wiki/Comparison_of_Microsoft_Windows_versions
+        # https://en.wikipedia.org/wiki/Windows_NT#Releases
         versions = {
             "NT": ("4.0", (6, 5, 4, 3, 2, 1)),
             "2000": ("5.0", (4, 3, 2, 1)),

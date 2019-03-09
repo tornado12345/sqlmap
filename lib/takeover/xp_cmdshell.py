@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2018 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
@@ -136,7 +136,7 @@ class XP_cmdshell:
 
         for line in lines:
             echoedLine = "echo %s " % line
-            echoedLine += ">> \"%s\%s\"" % (tmpPath, randDestFile)
+            echoedLine += ">> \"%s\\%s\"" % (tmpPath, randDestFile)
             echoedLines.append(echoedLine)
 
         for echoedLine in echoedLines:

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2018 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
@@ -12,6 +12,7 @@ import socket
 import urllib2
 
 from lib.core.common import getSafeExString
+from lib.core.data import conf
 from lib.core.data import kb
 from lib.core.data import logger
 from lib.core.exception import SqlmapConnectionException
@@ -48,7 +49,7 @@ class HTTPSConnection(httplib.HTTPSConnection):
 
         # Reference(s): https://docs.python.org/2/library/ssl.html#ssl.SSLContext
         #               https://www.mnot.net/blog/2014/12/27/python_2_and_tls_sni
-        if re.search(r"\A[\d.]+\Z", self.host) is None and kb.tlsSNI.get(self.host) is not False and hasattr(ssl, "SSLContext"):
+        if re.search(r"\A[\d.]+\Z", self.host) is None and kb.tlsSNI.get(self.host) is not False and not any((conf.proxy, conf.tor)) and hasattr(ssl, "SSLContext"):
             for protocol in filter(lambda _: _ >= ssl.PROTOCOL_TLSv1, _protocols):
                 try:
                     sock = create_sock()
@@ -62,7 +63,7 @@ class HTTPSConnection(httplib.HTTPSConnection):
                         break
                     else:
                         sock.close()
-                except (ssl.SSLError, socket.error, httplib.BadStatusLine), ex:
+                except (ssl.SSLError, socket.error, httplib.BadStatusLine) as ex:
                     self._tunnel_host = None
                     logger.debug("SSL connection error occurred ('%s')" % getSafeExString(ex))
 
@@ -82,7 +83,7 @@ class HTTPSConnection(httplib.HTTPSConnection):
                         break
                     else:
                         sock.close()
-                except (ssl.SSLError, socket.error, httplib.BadStatusLine), ex:
+                except (ssl.SSLError, socket.error, httplib.BadStatusLine) as ex:
                     self._tunnel_host = None
                     logger.debug("SSL connection error occurred ('%s')" % getSafeExString(ex))
 

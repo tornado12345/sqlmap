@@ -1,9 +1,11 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2018 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
+
+from __future__ import print_function
 
 import re
 import time
@@ -16,6 +18,7 @@ from lib.core.common import calculateDeltaSeconds
 from lib.core.common import dataToStdout
 from lib.core.common import decodeHexValue
 from lib.core.common import extractRegexResult
+from lib.core.common import firstNotNone
 from lib.core.common import getConsoleWidth
 from lib.core.common import getPartRun
 from lib.core.common import getUnicode
@@ -91,7 +94,7 @@ def _oneShotErrorUse(expression, field=None, chunkTest=False):
                     candidate = len(result) - len(kb.chars.stop)
                     current = candidate if candidate != current else current - 1
             else:
-                current = current / 2
+                current = current // 2
 
         if kb.errorChunkLength:
             hashDBWrite(HASHDB_KEYS.KB_ERROR_CHUNK_LENGTH, kb.errorChunkLength)
@@ -102,7 +105,7 @@ def _oneShotErrorUse(expression, field=None, chunkTest=False):
         try:
             while True:
                 check = r"(?si)%s(?P<result>.*?)%s" % (kb.chars.start, kb.chars.stop)
-                trimcheck = r"(?si)%s(?P<result>[^<\n]*)" % kb.chars.start
+                trimCheck = r"(?si)%s(?P<result>[^<\n]*)" % kb.chars.start
 
                 if field:
                     nulledCastedField = agent.nullAndCastField(field)
@@ -133,22 +136,21 @@ def _oneShotErrorUse(expression, field=None, chunkTest=False):
 
                 # Parse the returned page to get the exact error-based
                 # SQL injection output
-                output = reduce(lambda x, y: x if x is not None else y, (
+                output = firstNotNone(
                     extractRegexResult(check, page),
                     extractRegexResult(check, threadData.lastHTTPError[2] if wasLastResponseHTTPError() else None),
                     extractRegexResult(check, listToStrValue((headers[header] for header in headers if header.lower() != HTTP_HEADER.URI.lower()) if headers else None)),
-                    extractRegexResult(check, threadData.lastRedirectMsg[1] if threadData.lastRedirectMsg and threadData.lastRedirectMsg[0] == threadData.lastRequestUID else None)),
-                    None
+                    extractRegexResult(check, threadData.lastRedirectMsg[1] if threadData.lastRedirectMsg and threadData.lastRedirectMsg[0] == threadData.lastRequestUID else None)
                 )
 
                 if output is not None:
                     output = getUnicode(output)
                 else:
-                    trimmed = (
-                        extractRegexResult(trimcheck, page) or
-                        extractRegexResult(trimcheck, threadData.lastHTTPError[2] if wasLastResponseHTTPError() else None) or
-                        extractRegexResult(trimcheck, listToStrValue((headers[header] for header in headers if header.lower() != HTTP_HEADER.URI.lower()) if headers else None)) or
-                        extractRegexResult(trimcheck, threadData.lastRedirectMsg[1] if threadData.lastRedirectMsg and threadData.lastRedirectMsg[0] == threadData.lastRequestUID else None)
+                    trimmed = firstNotNone(
+                        extractRegexResult(trimCheck, page),
+                        extractRegexResult(trimCheck, threadData.lastHTTPError[2] if wasLastResponseHTTPError() else None),
+                        extractRegexResult(trimCheck, listToStrValue((headers[header] for header in headers if header.lower() != HTTP_HEADER.URI.lower()) if headers else None)),
+                        extractRegexResult(trimCheck, threadData.lastRedirectMsg[1] if threadData.lastRedirectMsg and threadData.lastRedirectMsg[0] == threadData.lastRequestUID else None)
                     )
 
                     if trimmed:
@@ -163,7 +165,7 @@ def _oneShotErrorUse(expression, field=None, chunkTest=False):
                             output = extractRegexResult(check, trimmed, re.IGNORECASE)
 
                             if not output:
-                                check = "(?P<result>[^\s<>'\"]+)"
+                                check = r"(?P<result>[^\s<>'\"]+)"
                                 output = extractRegexResult(check, trimmed, re.IGNORECASE)
                             else:
                                 output = output.rstrip()
@@ -242,9 +244,9 @@ def _errorFields(expression, expressionFields, expressionFieldsList, num=None, e
 
         if not suppressOutput:
             if kb.fileReadMode and output and output.strip():
-                print
+                print()
             elif output is not None and not (threadData.resumed and kb.suppressResumeInfo) and not (emptyFields and field in emptyFields):
-                status = "[%s] [INFO] %s: %s" % (time.strftime("%X"), "resumed" if threadData.resumed else "retrieved", output if kb.safeCharEncode else safecharencode(output))
+                status = "[%s] [INFO] %s: '%s'" % (time.strftime("%X"), "resumed" if threadData.resumed else "retrieved", output if kb.safeCharEncode else safecharencode(output))
 
                 if len(status) > width:
                     status = "%s..." % status[:width - 3]
@@ -332,7 +334,7 @@ def errorUse(expression, dump=False):
                     stopLimit = int(count)
 
                     infoMsg = "used SQL query returns "
-                    infoMsg += "%d entries" % stopLimit
+                    infoMsg += "%d %s" % (stopLimit, "entries" if stopLimit > 1 else "entry")
                     logger.info(infoMsg)
 
             elif count and not count.isdigit():
@@ -402,9 +404,8 @@ def errorUse(expression, dump=False):
                         while kb.threadContinue:
                             with kb.locks.limit:
                                 try:
-                                    valueStart = time.time()
                                     threadData.shared.counter += 1
-                                    num = threadData.shared.limits.next()
+                                    num = next(threadData.shared.limits)
                                 except StopIteration:
                                     break
 
@@ -414,12 +415,12 @@ def errorUse(expression, dump=False):
                                 break
 
                             if output and isListLike(output) and len(output) == 1:
-                                output = output[0]
+                                output = unArrayizeValue(output)
 
                             with kb.locks.value:
                                 index = None
                                 if threadData.shared.showEta:
-                                    threadData.shared.progress.progress(time.time() - valueStart, threadData.shared.counter)
+                                    threadData.shared.progress.progress(threadData.shared.counter)
                                 for index in xrange(1 + len(threadData.shared.buffered)):
                                     if index < len(threadData.shared.buffered) and threadData.shared.buffered[index][0] >= num:
                                         break
@@ -445,8 +446,11 @@ def errorUse(expression, dump=False):
     if not value and not abortedFlag:
         value = _errorFields(expression, expressionFields, expressionFieldsList)
 
-    if value and isListLike(value) and len(value) == 1 and isinstance(value[0], basestring):
-        value = value[0]
+    if value and isListLike(value):
+        if len(value) == 1 and isinstance(value[0], basestring):
+            value = unArrayizeValue(value)
+        elif len(value) > 1 and stopLimit == 1:
+            value = [value]
 
     duration = calculateDeltaSeconds(start)
 

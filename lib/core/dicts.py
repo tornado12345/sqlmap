@@ -1,10 +1,11 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2018 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
+from lib.core.enums import CONTENT_TYPE
 from lib.core.enums import DBMS
 from lib.core.enums import OS
 from lib.core.enums import POST_HINT
@@ -21,6 +22,7 @@ from lib.core.settings import MAXDB_ALIASES
 from lib.core.settings import SYBASE_ALIASES
 from lib.core.settings import DB2_ALIASES
 from lib.core.settings import HSQLDB_ALIASES
+from lib.core.settings import H2_ALIASES
 from lib.core.settings import INFORMIX_ALIASES
 
 FIREBIRD_TYPES = {
@@ -194,6 +196,7 @@ DBMS_DICT = {
     DBMS.SYBASE: (SYBASE_ALIASES, "python-pymssql", "https://github.com/pymssql/pymssql", "sybase"),
     DBMS.DB2: (DB2_ALIASES, "python ibm-db", "https://github.com/ibmdb/python-ibmdb", "ibm_db_sa"),
     DBMS.HSQLDB: (HSQLDB_ALIASES, "python jaydebeapi & python-jpype", "https://pypi.python.org/pypi/JayDeBeApi/ & http://jpype.sourceforge.net/", None),
+    DBMS.H2: (H2_ALIASES, None, None, None),
     DBMS.INFORMIX: (INFORMIX_ALIASES, "python ibm-db", "https://github.com/ibmdb/python-ibmdb", "ibm_db_sa"),
 }
 
@@ -262,6 +265,10 @@ SQL_STATEMENTS = {
         "commit ",
         "rollback ",
     ),
+
+    "SQL administration": (
+        "set ",
+    ),
 }
 
 POST_HINT_CONTENT_TYPES = {
@@ -279,6 +286,8 @@ DEPRECATED_OPTIONS = {
     "--binary": "use '--binary-fields' instead",
     "--auth-private": "use '--auth-file' instead",
     "--ignore-401": "use '--ignore-code' instead",
+    "--second-order": "use '--second-url' instead",
+    "--purge-output": "use '--purge' instead",
     "--check-payload": None,
     "--check-waf": None,
     "--pickled-options": "use '--api -c ...' instead",
@@ -292,4 +301,32 @@ DUMP_DATA_PREPROCESS = {
 DEFAULT_DOC_ROOTS = {
     OS.WINDOWS: ("C:/xampp/htdocs/", "C:/wamp/www/", "C:/Inetpub/wwwroot/"),
     OS.LINUX: ("/var/www/", "/var/www/html", "/usr/local/apache2/htdocs", "/var/www/nginx-default", "/srv/www")  # Reference: https://wiki.apache.org/httpd/DistrosDefaultLayout
+}
+
+PART_RUN_CONTENT_TYPES = {
+    "checkDbms": CONTENT_TYPE.TECHNIQUES,
+    "getFingerprint": CONTENT_TYPE.DBMS_FINGERPRINT,
+    "getBanner": CONTENT_TYPE.BANNER,
+    "getCurrentUser": CONTENT_TYPE.CURRENT_USER,
+    "getCurrentDb": CONTENT_TYPE.CURRENT_DB,
+    "getHostname": CONTENT_TYPE.HOSTNAME,
+    "isDba": CONTENT_TYPE.IS_DBA,
+    "getUsers": CONTENT_TYPE.USERS,
+    "getPasswordHashes": CONTENT_TYPE.PASSWORDS,
+    "getPrivileges": CONTENT_TYPE.PRIVILEGES,
+    "getRoles": CONTENT_TYPE.ROLES,
+    "getDbs": CONTENT_TYPE.DBS,
+    "getTables": CONTENT_TYPE.TABLES,
+    "getColumns": CONTENT_TYPE.COLUMNS,
+    "getSchema": CONTENT_TYPE.SCHEMA,
+    "getCount": CONTENT_TYPE.COUNT,
+    "dumpTable": CONTENT_TYPE.DUMP_TABLE,
+    "search": CONTENT_TYPE.SEARCH,
+    "sqlQuery": CONTENT_TYPE.SQL_QUERY,
+    "tableExists": CONTENT_TYPE.COMMON_TABLES,
+    "columnExists": CONTENT_TYPE.COMMON_COLUMNS,
+    "readFile": CONTENT_TYPE.FILE_READ,
+    "writeFile": CONTENT_TYPE.FILE_WRITE,
+    "osCmd": CONTENT_TYPE.OS_CMD,
+    "regRead": CONTENT_TYPE.REG_READ
 }

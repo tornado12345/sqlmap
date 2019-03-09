@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2018 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
@@ -20,6 +20,7 @@ from lib.core.common import dataToStdout
 from lib.core.common import getSafeExString
 from lib.core.common import getUnicode
 from lib.core.common import isListLike
+from lib.core.common import isMultiThreadMode
 from lib.core.common import normalizeUnicode
 from lib.core.common import openFile
 from lib.core.common import prioritySortColumns
@@ -47,6 +48,7 @@ from lib.core.settings import MIN_BINARY_DISK_DUMP_SIZE
 from lib.core.settings import TRIM_STDOUT_DUMP_SIZE
 from lib.core.settings import UNICODE_ENCODING
 from lib.core.settings import UNSAFE_DUMP_FILEPATH_REPLACEMENT
+from lib.core.settings import VERSION_STRING
 from lib.core.settings import WINDOWS_RESERVED_NAMES
 from thirdparty.magic import magic
 
@@ -73,16 +75,17 @@ class Dump(object):
         if console:
             dataToStdout(text)
 
-        if kb.get("multiThreadMode"):
+        multiThreadMode = isMultiThreadMode()
+        if multiThreadMode:
             self._lock.acquire()
 
         try:
             self._outputFP.write(text)
-        except IOError, ex:
+        except IOError as ex:
             errMsg = "error occurred while writing to log file ('%s')" % getSafeExString(ex)
             raise SqlmapGenericException(errMsg)
 
-        if kb.get("multiThreadMode"):
+        if multiThreadMode:
             self._lock.release()
 
         kb.dataOutputFlag = True
@@ -98,7 +101,7 @@ class Dump(object):
         self._outputFile = os.path.join(conf.outputPath, "log")
         try:
             self._outputFP = openFile(self._outputFile, "ab" if not conf.flushSession else "wb")
-        except IOError, ex:
+        except IOError as ex:
             errMsg = "error occurred while opening log file ('%s')" % getSafeExString(ex)
             raise SqlmapGenericException(errMsg)
 
@@ -109,8 +112,6 @@ class Dump(object):
         self._write(data, content_type=content_type)
 
     def string(self, header, data, content_type=None, sort=True):
-        kb.stickyLevel = None
-
         if conf.api:
             self._write(data, content_type=content_type)
             return
@@ -132,7 +133,7 @@ class Dump(object):
             if "\n" in _:
                 self._write("%s:\n---\n%s\n---" % (header, _))
             else:
-                self._write("%s:    %s" % (header, ("'%s'" % _) if isinstance(data, basestring) else _))
+                self._write("%s: %s" % (header, ("'%s'" % _) if isinstance(data, basestring) else _))
         else:
             self._write("%s:\tNone" % header)
 
@@ -170,7 +171,7 @@ class Dump(object):
     def currentDb(self, data):
         if Backend.isDbms(DBMS.MAXDB):
             self.string("current database (no practical usage on %s)" % Backend.getIdentifiedDbms(), data, content_type=CONTENT_TYPE.CURRENT_DB)
-        elif Backend.getIdentifiedDbms() in (DBMS.ORACLE, DBMS.PGSQL, DBMS.HSQLDB):
+        elif Backend.getIdentifiedDbms() in (DBMS.ORACLE, DBMS.PGSQL, DBMS.HSQLDB, DBMS.H2):
             self.string("current schema (equivalent to database on %s)" % Backend.getIdentifiedDbms(), data, content_type=CONTENT_TYPE.CURRENT_DB)
         else:
             self.string("current database", data, content_type=CONTENT_TYPE.CURRENT_DB)
@@ -425,10 +426,10 @@ class Dump(object):
                     if not os.path.isdir(dumpDbPath):
                         try:
                             os.makedirs(dumpDbPath)
-                        except Exception, ex:
+                        except Exception as ex:
                             try:
                                 tempDir = tempfile.mkdtemp(prefix="sqlmapdb")
-                            except IOError, _:
+                            except IOError as _:
                                 errMsg = "unable to write to the temporary directory ('%s'). " % _
                                 errMsg += "Please make sure that your disk is not full and "
                                 errMsg += "that you have sufficient write permissions to "
@@ -532,6 +533,7 @@ class Dump(object):
         elif conf.dumpFormat == DUMP_FORMAT.HTML:
             dataToDumpFile(dumpFP, "<!DOCTYPE html>\n<html>\n<head>\n")
             dataToDumpFile(dumpFP, "<meta http-equiv=\"Content-type\" content=\"text/html;charset=%s\">\n" % UNICODE_ENCODING)
+            dataToDumpFile(dumpFP, "<meta name=\"generator\" content=\"%s\" />\n" % VERSION_STRING)
             dataToDumpFile(dumpFP, "<title>%s</title>\n" % ("%s%s" % ("%s." % db if METADB_SUFFIX not in db else "", table)))
             dataToDumpFile(dumpFP, HTML_DUMP_CSS_STYLE)
             dataToDumpFile(dumpFP, "\n</head>\n<body>\n<table>\n<thead>\n<tr>\n")
@@ -622,8 +624,8 @@ class Dump(object):
                                 with open(filepath, "wb") as f:
                                     _ = safechardecode(value, True)
                                     f.write(_)
-                        except magic.MagicException, err:
-                            logger.debug(str(err))
+                        except magic.MagicException as ex:
+                            logger.debug(getSafeExString(ex))
 
                     if conf.dumpFormat == DUMP_FORMAT.CSV:
                         if field == fields:

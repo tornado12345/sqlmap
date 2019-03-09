@@ -1,13 +1,15 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2018 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
+from __future__ import print_function
+
 try:
     from crypt import crypt
-except ImportError:
+except:  # removed ImportError because of https://github.com/sqlmapproject/sqlmap/issues/3171
     from thirdparty.fcrypt.fcrypt import crypt
 
 _multiprocessing = None
@@ -19,7 +21,7 @@ try:
 
     # problems with ctypes (Reference: https://github.com/sqlmapproject/sqlmap/issues/2952)
     _ = multiprocessing.Value('i')
-except (ImportError, OSError):
+except (ImportError, OSError, AttributeError):
     pass
 else:
     try:
@@ -75,6 +77,7 @@ from lib.core.settings import COMMON_PASSWORD_SUFFIXES
 from lib.core.settings import COMMON_USER_COLUMNS
 from lib.core.settings import DEV_EMAIL_ADDRESS
 from lib.core.settings import DUMMY_USER_PREFIX
+from lib.core.settings import HASH_EMPTY_PASSWORD_MARKER
 from lib.core.settings import HASH_MOD_ITEM_DISPLAY
 from lib.core.settings import HASH_RECOGNITION_QUIT_THRESHOLD
 from lib.core.settings import IS_WIN
@@ -598,7 +601,7 @@ def attackCachedUsersPasswords():
         for (_, hash_, password) in results:
             lut[hash_.lower()] = password
 
-        for user in kb.data.cachedUsersPasswords.keys():
+        for user in kb.data.cachedUsersPasswords:
             for i in xrange(len(kb.data.cachedUsersPasswords[user])):
                 if (kb.data.cachedUsersPasswords[user][i] or "").strip():
                     value = kb.data.cachedUsersPasswords[user][i].lower().split()[0]
@@ -608,7 +611,7 @@ def attackCachedUsersPasswords():
 def attackDumpedTable():
     if kb.data.dumpedTable:
         table = kb.data.dumpedTable
-        columns = table.keys()
+        columns = list(table.keys())
         count = table["__infos__"]["count"]
 
         if not count:
@@ -622,7 +625,7 @@ def attackDumpedTable():
         col_passwords = set()
         attack_dict = {}
 
-        for column in columns:
+        for column in sorted(columns, key=lambda _: len(_), reverse=True):
             if column and column.lower() in COMMON_USER_COLUMNS:
                 col_user = column
                 break
@@ -684,7 +687,7 @@ def attackDumpedTable():
                         value = table[column]['values'][i]
 
                         if value and value.lower() in lut:
-                            table[column]['values'][i] = "%s (%s)" % (getUnicode(table[column]['values'][i]), getUnicode(lut[value.lower()]))
+                            table[column]['values'][i] = "%s (%s)" % (getUnicode(table[column]['values'][i]), getUnicode(lut[value.lower()] or HASH_EMPTY_PASSWORD_MARKER))
                             table[column]['length'] = max(table[column]['length'], len(table[column]['values'][i]))
 
 def hashRecognition(value):
@@ -769,8 +772,8 @@ def _bruteProcessVariantA(attack_info, hash_regex, suffix, retVal, proc_id, proc
             except (UnicodeEncodeError, UnicodeDecodeError):
                 pass  # ignore possible encoding problems caused by some words in custom dictionaries
 
-            except Exception, e:
-                warnMsg = "there was a problem while hashing entry: %s (%s). " % (repr(word), e)
+            except Exception as ex:
+                warnMsg = "there was a problem while hashing entry: %s ('%s'). " % (repr(word), getSafeExString(ex))
                 warnMsg += "Please report by e-mail to '%s'" % DEV_EMAIL_ADDRESS
                 logger.critical(warnMsg)
 
@@ -846,8 +849,8 @@ def _bruteProcessVariantB(user, hash_, kwargs, hash_regex, suffix, retVal, found
             except (UnicodeEncodeError, UnicodeDecodeError):
                 pass  # ignore possible encoding problems caused by some words in custom dictionaries
 
-            except Exception, e:
-                warnMsg = "there was a problem while hashing entry: %s (%s). " % (repr(word), e)
+            except Exception as ex:
+                warnMsg = "there was a problem while hashing entry: %s ('%s'). " % (repr(word), getSafeExString(ex))
                 warnMsg += "Please report by e-mail to '%s'" % DEV_EMAIL_ADDRESS
                 logger.critical(warnMsg)
 
@@ -903,7 +906,7 @@ def dictionaryAttack(attack_dict):
 
                         if hash_regex in (HASH.MD5_BASE64, HASH.SHA1_BASE64, HASH.SHA256_BASE64, HASH.SHA512_BASE64):
                             item = [(user, hash_.decode("base64").encode("hex")), {}]
-                        elif hash_regex in (HASH.MYSQL, HASH.MYSQL_OLD, HASH.MD5_GENERIC, HASH.SHA1_GENERIC, HASH.APACHE_SHA1):
+                        elif hash_regex in (HASH.MYSQL, HASH.MYSQL_OLD, HASH.MD5_GENERIC, HASH.SHA1_GENERIC, HASH.SHA224_GENERIC, HASH.SHA256_GENERIC, HASH.SHA384_GENERIC, HASH.SHA512_GENERIC, HASH.APACHE_SHA1):
                             item = [(user, hash_), {}]
                         elif hash_regex in (HASH.SSHA,):
                             item = [(user, hash_), {"salt": hash_.decode("base64")[20:]}]
@@ -982,7 +985,7 @@ def dictionaryAttack(attack_dict):
                     else:
                         logger.info("using default dictionary")
 
-                    dictPaths = filter(None, dictPaths)
+                    dictPaths = [_ for _ in dictPaths if _]
 
                     for dictPath in dictPaths:
                         checkFile(dictPath)
@@ -997,7 +1000,7 @@ def dictionaryAttack(attack_dict):
 
                     kb.wordlists = dictPaths
 
-                except Exception, ex:
+                except Exception as ex:
                     warnMsg = "there was a problem while loading dictionaries"
                     warnMsg += " ('%s')" % getSafeExString(ex)
                     logger.critical(warnMsg)
@@ -1060,7 +1063,7 @@ def dictionaryAttack(attack_dict):
                         _bruteProcessVariantA(attack_info, hash_regex, suffix, retVal, 0, 1, kb.wordlists, custom_wordlist, conf.api)
 
                 except KeyboardInterrupt:
-                    print
+                    print()
                     processException = True
                     warnMsg = "user aborted during dictionary-based attack phase (Ctrl+C was pressed)"
                     logger.warn(warnMsg)
@@ -1077,7 +1080,8 @@ def dictionaryAttack(attack_dict):
                         gc.enable()
 
                     if retVal:
-                        conf.hashDB.beginTransaction()
+                        if conf.hashDB:
+                            conf.hashDB.beginTransaction()
 
                         while not retVal.empty():
                             user, hash_, word = item = retVal.get(block=False)
@@ -1085,7 +1089,8 @@ def dictionaryAttack(attack_dict):
                             hashDBWrite(hash_, word)
                             results.append(item)
 
-                        conf.hashDB.endTransaction()
+                        if conf.hashDB:
+                            conf.hashDB.endTransaction()
 
             clearConsoleLine()
 
@@ -1154,7 +1159,7 @@ def dictionaryAttack(attack_dict):
                             found = found_.value
 
                     except KeyboardInterrupt:
-                        print
+                        print()
                         processException = True
                         warnMsg = "user aborted during dictionary-based attack phase (Ctrl+C was pressed)"
                         logger.warn(warnMsg)
@@ -1170,15 +1175,17 @@ def dictionaryAttack(attack_dict):
                         if _multiprocessing:
                             gc.enable()
 
-                        if retVal:
-                            conf.hashDB.beginTransaction()
+                        if retVal and conf.hashDB:
+                            if conf.hashDB:
+                                conf.hashDB.beginTransaction()
 
                             while not retVal.empty():
                                 user, hash_, word = item = retVal.get(block=False)
                                 hashDBWrite(hash_, word)
                                 results.append(item)
 
-                            conf.hashDB.endTransaction()
+                            if conf.hashDB:
+                                conf.hashDB.endTransaction()
 
                 clearConsoleLine()
 
@@ -1193,3 +1200,17 @@ def dictionaryAttack(attack_dict):
         logger.warn(warnMsg)
 
     return results
+
+def crackHashFile(hashFile):
+    i = 0
+    attack_dict = {}
+
+    for line in getFileItems(conf.hashFile):
+        if ':' in line:
+            user, hash_ = line.split(':', 1)
+            attack_dict[user] = [hash_]
+        else:
+            attack_dict["%s%d" % (DUMMY_USER_PREFIX, i)] = [line]
+            i += 1
+
+    dictionaryAttack(attack_dict)

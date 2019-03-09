@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2018 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
@@ -18,13 +18,14 @@ def dependencies():
 
 def tamper(payload, **kwargs):
     """
-    Replaces each keyword character with random case value
+    Replaces each keyword character with random case value (e.g. SELECT -> SEleCt)
 
     Tested against:
         * Microsoft SQL Server 2005
         * MySQL 4, 5.0 and 5.5
         * Oracle 10g
         * PostgreSQL 8.3, 8.4, 9.0
+        * SQLite 3
 
     Notes:
         * Useful to bypass very weak and bespoke web application firewalls
@@ -43,7 +44,7 @@ def tamper(payload, **kwargs):
         for match in re.finditer(r"\b[A-Za-z_]+\b", retVal):
             word = match.group()
 
-            if word.upper() in kb.keywords:
+            if word.upper() in kb.keywords or ("%s(" % word) in payload:
                 while True:
                     _ = ""
 

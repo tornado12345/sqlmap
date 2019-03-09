@@ -1,6 +1,8 @@
 #
 # Copyright (C) 2010-2012 Vinay Sajip. All rights reserved. Licensed under the new BSD license.
+# (Note: 2018 modifications by @stamparm)
 #
+
 import logging
 import os
 import re
@@ -43,6 +45,7 @@ class ColorizingStreamHandler(logging.StreamHandler):
     }
     csi = '\x1b['
     reset = '\x1b[0m'
+    bold = "\x1b[1m"
     disable_coloring = False
 
     @property
@@ -127,9 +130,19 @@ class ColorizingStreamHandler(logging.StreamHandler):
 
                         ctypes.windll.kernel32.SetConsoleTextAttribute(h, color)
 
-    def colorize(self, message, record):
-        if record.levelno in self.level_map and self.is_tty:
-            bg, fg, bold = self.level_map[record.levelno]
+    def _reset(self, message):
+        if not message.endswith(self.reset):
+            reset = self.reset
+        elif self.bold in message:  # bold
+            reset = self.reset + self.bold
+        else:
+            reset = self.reset
+
+        return reset
+
+    def colorize(self, message, levelno):
+        if levelno in self.level_map and self.is_tty:
+            bg, fg, bold = self.level_map[levelno]
             params = []
 
             if bg in self.color_map:
@@ -142,17 +155,50 @@ class ColorizingStreamHandler(logging.StreamHandler):
                 params.append('1')
 
             if params and message:
-                if message.lstrip() != message:
-                    prefix = re.search(r"\s+", message).group(0)
-                    message = message[len(prefix):]
-                else:
-                    prefix = ""
+                match = re.search(r"\A(\s+)", message)
+                prefix = match.group(1) if match else ""
 
-                message = "%s%s" % (prefix, ''.join((self.csi, ';'.join(params),
-                                   'm', message, self.reset)))
+                match = re.search(r"\[([A-Z ]+)\]", message)  # log level
+                if match:
+                    level = match.group(1)
+                    if message.startswith(self.bold):
+                        message = message.replace(self.bold, "")
+                        reset = self.reset + self.bold
+                        params.append('1')
+                    else:
+                        reset = self.reset
+                    message = message.replace(level, ''.join((self.csi, ';'.join(params), 'm', level, reset)), 1)
+
+                    match = re.search(r"\A\s*\[([\d:]+)\]", message)  # time
+                    if match:
+                        time = match.group(1)
+                        message = message.replace(time, ''.join((self.csi, str(self.color_map["cyan"] + 30), 'm', time, self._reset(message))), 1)
+
+                    match = re.search(r"\[(#\d+)\]", message)  # counter
+                    if match:
+                        counter = match.group(1)
+                        message = message.replace(counter, ''.join((self.csi, str(self.color_map["yellow"] + 30), 'm', counter, self._reset(message))), 1)
+
+                    if level != "PAYLOAD":
+                        if any(_ in message for _ in ("parsed DBMS error message",)):
+                            match = re.search(r": '(.+)'", message)
+                            if match:
+                                string = match.group(1)
+                                message = message.replace("'%s'" % string, "'%s'" % ''.join((self.csi, str(self.color_map["white"] + 30), 'm', string, self._reset(message))), 1)
+                        else:
+                            for match in re.finditer(r"[^\w]'([^']+)'", message):  # single-quoted
+                                string = match.group(1)
+                                message = message.replace("'%s'" % string, "'%s'" % ''.join((self.csi, str(self.color_map["white"] + 30), 'm', string, self._reset(message))), 1)
+                else:
+                    message = ''.join((self.csi, ';'.join(params), 'm', message, self.reset))
+
+                if prefix:
+                    message = "%s%s" % (prefix, message)
+
+                message = message.replace("%s]" % self.bold, "]%s" % self.bold)  # dirty patch
 
         return message
 
     def format(self, record):
         message = logging.StreamHandler.format(self, record)
-        return self.colorize(message, record)
+        return self.colorize(message, record.levelno)

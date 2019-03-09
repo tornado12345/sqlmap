@@ -1,15 +1,13 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2018 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
 import binascii
 import compiler
 import httplib
-import json
-import keyword
 import logging
 import re
 import socket
@@ -17,6 +15,7 @@ import string
 import struct
 import time
 import traceback
+import urllib
 import urllib2
 import urlparse
 
@@ -44,6 +43,7 @@ from lib.core.common import getHostHeader
 from lib.core.common import getRequestHeader
 from lib.core.common import getSafeExString
 from lib.core.common import getUnicode
+from lib.core.common import isMultiThreadMode
 from lib.core.common import logHTTPTraffic
 from lib.core.common import pushValue
 from lib.core.common import popValue
@@ -64,11 +64,13 @@ from lib.core.common import urlencode
 from lib.core.data import conf
 from lib.core.data import kb
 from lib.core.data import logger
+from lib.core.datatype import AttribDict
 from lib.core.decorators import stackedmethod
 from lib.core.dicts import POST_HINT_CONTENT_TYPES
 from lib.core.enums import ADJUST_TIME_DELAY
 from lib.core.enums import AUTH_TYPE
 from lib.core.enums import CUSTOM_LOGGING
+from lib.core.enums import HINT
 from lib.core.enums import HTTP_HEADER
 from lib.core.enums import HTTPMETHOD
 from lib.core.enums import NULLCONNECTION
@@ -76,7 +78,7 @@ from lib.core.enums import PAYLOAD
 from lib.core.enums import PLACE
 from lib.core.enums import POST_HINT
 from lib.core.enums import REDIRECTION
-from lib.core.enums import WEB_API
+from lib.core.enums import WEB_PLATFORM
 from lib.core.exception import SqlmapCompressionException
 from lib.core.exception import SqlmapConnectionException
 from lib.core.exception import SqlmapGenericException
@@ -88,7 +90,8 @@ from lib.core.settings import BOUNDARY_BACKSLASH_MARKER
 from lib.core.settings import DEFAULT_CONTENT_TYPE
 from lib.core.settings import DEFAULT_COOKIE_DELIMITER
 from lib.core.settings import DEFAULT_GET_POST_DELIMITER
-from lib.core.settings import EVALCODE_KEYWORD_SUFFIX
+from lib.core.settings import DEFAULT_USER_AGENT
+from lib.core.settings import EVALCODE_ENCODED_PREFIX
 from lib.core.settings import HTTP_ACCEPT_HEADER_VALUE
 from lib.core.settings import HTTP_ACCEPT_ENCODING_HEADER_VALUE
 from lib.core.settings import MAX_CONNECTION_CHUNK_SIZE
@@ -98,6 +101,8 @@ from lib.core.settings import MAX_CONSECUTIVE_CONNECTION_ERRORS
 from lib.core.settings import MAX_MURPHY_SLEEP_TIME
 from lib.core.settings import META_REFRESH_REGEX
 from lib.core.settings import MIN_TIME_RESPONSES
+from lib.core.settings import MAX_TIME_RESPONSES
+from lib.core.settings import IPS_WAF_CHECK_PAYLOAD
 from lib.core.settings import IS_WIN
 from lib.core.settings import LARGE_CHUNK_TRIM_MARKER
 from lib.core.settings import PAYLOAD_DELIMITER
@@ -169,9 +174,11 @@ class Connect(object):
                     warnMsg += "(e.g. 'https://help.ubuntu.com/community/Tor')"
             else:
                 warnMsg = "if the problem persists please check that the provided "
-                warnMsg += "target URL is valid. In case that it is, you can try to rerun "
-                warnMsg += "with the switch '--random-agent' turned on "
-                warnMsg += "and/or proxy switches ('--ignore-proxy', '--proxy',...)"
+                warnMsg += "target URL is reachable. In case that it is, "
+                warnMsg += "you can try to rerun with "
+                if not conf.randomAgent:
+                    warnMsg += "switch '--random-agent' and/or "
+                warnMsg += "proxy switches ('--ignore-proxy', '--proxy',...)"
             singleTimeWarnMessage(warnMsg)
 
         elif conf.threads > 1:
@@ -263,6 +270,7 @@ class Connect(object):
         crawling = kwargs.get("crawling", False)
         checking = kwargs.get("checking", False)
         skipRead = kwargs.get("skipRead", False)
+        finalCode = kwargs.get("finalCode", False)
 
         if multipart:
             post = multipart
@@ -358,14 +366,21 @@ class Connect(object):
             if kb.proxyAuthHeader:
                 headers[HTTP_HEADER.PROXY_AUTHORIZATION] = kb.proxyAuthHeader
 
-            if not getHeader(headers, HTTP_HEADER.ACCEPT):
-                headers[HTTP_HEADER.ACCEPT] = HTTP_ACCEPT_HEADER_VALUE
+            if not conf.requestFile or not target:
+                if not getHeader(headers, HTTP_HEADER.HOST):
+                    headers[HTTP_HEADER.HOST] = getHostHeader(url)
 
-            if not getHeader(headers, HTTP_HEADER.HOST) or not target:
-                headers[HTTP_HEADER.HOST] = getHostHeader(url)
+                if not getHeader(headers, HTTP_HEADER.ACCEPT):
+                    headers[HTTP_HEADER.ACCEPT] = HTTP_ACCEPT_HEADER_VALUE
 
-            if not getHeader(headers, HTTP_HEADER.ACCEPT_ENCODING):
-                headers[HTTP_HEADER.ACCEPT_ENCODING] = HTTP_ACCEPT_ENCODING_HEADER_VALUE if kb.pageCompress else "identity"
+                if not getHeader(headers, HTTP_HEADER.ACCEPT_ENCODING):
+                    headers[HTTP_HEADER.ACCEPT_ENCODING] = HTTP_ACCEPT_ENCODING_HEADER_VALUE if kb.pageCompress else "identity"
+
+            elif conf.requestFile and getHeader(headers, HTTP_HEADER.USER_AGENT) == DEFAULT_USER_AGENT:
+                for header in headers:
+                    if header.upper() == HTTP_HEADER.USER_AGENT.upper():
+                        del headers[header]
+                        break
 
             if post is not None and not multipart and not getHeader(headers, HTTP_HEADER.CONTENT_TYPE):
                 headers[HTTP_HEADER.CONTENT_TYPE] = POST_HINT_CONTENT_TYPES.get(kb.postHint, DEFAULT_CONTENT_TYPE)
@@ -381,10 +396,6 @@ class Connect(object):
 
             if conf.keepAlive:
                 headers[HTTP_HEADER.CONNECTION] = "keep-alive"
-
-            # Reset header values to original in case of provided request file
-            if target and conf.requestFile:
-                headers = forgeHeaders({HTTP_HEADER.COOKIE: cookie})
 
             if auxHeaders:
                 headers = forgeHeaders(auxHeaders, headers)
@@ -408,8 +419,10 @@ class Connect(object):
                 ws.close()
                 code = ws.status
                 status = httplib.responses[code]
+
                 class _(dict):
                     pass
+
                 responseHeaders = _(ws.getheaders())
                 responseHeaders.headers = ["%s: %s\r\n" % (_[0].capitalize(), _[1]) for _ in responseHeaders.items()]
 
@@ -484,14 +497,15 @@ class Connect(object):
                 if hasattr(conn, "redurl"):
                     page = (threadData.lastRedirectMsg[1] if kb.redirectChoice == REDIRECTION.NO else Connect._connReadProxy(conn)) if not skipRead else None
                     skipLogTraffic = kb.redirectChoice == REDIRECTION.NO
-                    code = conn.redcode
+                    code = conn.redcode if not finalCode else code
                 else:
                     page = Connect._connReadProxy(conn) if not skipRead else None
 
                 if conn:
-                    code = conn.code
+                    code = (code or conn.code) if conn.code == kb.originalCode else conn.code  # do not override redirection code (for comparison purposes)
                     responseHeaders = conn.info()
                     responseHeaders[URI_HTTP_HEADER] = conn.geturl()
+                    kb.serverHeader = responseHeaders.get(HTTP_HEADER.SERVER, kb.serverHeader)
                 else:
                     code = None
                     responseHeaders = {}
@@ -542,11 +556,11 @@ class Connect(object):
                     if hasattr(conn.fp, '_sock'):
                         conn.fp._sock.close()
                     conn.close()
-                except Exception, ex:
+                except Exception as ex:
                     warnMsg = "problem occurred during connection closing ('%s')" % getSafeExString(ex)
                     logger.warn(warnMsg)
 
-        except SqlmapConnectionException, ex:
+        except SqlmapConnectionException as ex:
             if conf.proxyList and not kb.threadException:
                 warnMsg = "unable to connect to the target URL ('%s')" % ex
                 logger.critical(warnMsg)
@@ -555,7 +569,7 @@ class Connect(object):
             else:
                 raise
 
-        except urllib2.HTTPError, ex:
+        except urllib2.HTTPError as ex:
             page = None
             responseHeaders = None
 
@@ -586,10 +600,10 @@ class Connect(object):
             threadData.lastHTTPError = (threadData.lastRequestUID, code, status)
             kb.httpErrorCodes[code] = kb.httpErrorCodes.get(code, 0) + 1
 
-            responseMsg += "[#%d] (%d %s):\r\n" % (threadData.lastRequestUID, code, status)
+            responseMsg += "[#%d] (%s %s):\r\n" % (threadData.lastRequestUID, code, status)
 
             if responseHeaders:
-                logHeaders = "\r\n".join(["%s: %s" % (getUnicode(key.capitalize() if isinstance(key, basestring) else key), getUnicode(value)) for (key, value) in responseHeaders.items()])
+                logHeaders = getUnicode("".join(responseHeaders.headers).strip())
 
             logHTTPTraffic(requestMsg, "%s%s\r\n\r\n%s" % (responseMsg, logHeaders, (page or "")[:MAX_CONNECTION_CHUNK_SIZE]), start, time.time())
 
@@ -633,7 +647,7 @@ class Connect(object):
                     debugMsg = "got HTTP error code: %d (%s)" % (code, status)
                     logger.debug(debugMsg)
 
-        except (urllib2.URLError, socket.error, socket.timeout, httplib.HTTPException, struct.error, binascii.Error, ProxyError, SqlmapCompressionException, WebSocketException, TypeError, ValueError):
+        except (urllib2.URLError, socket.error, socket.timeout, httplib.HTTPException, struct.error, binascii.Error, ProxyError, SqlmapCompressionException, WebSocketException, TypeError, ValueError, OverflowError):
             tbMsg = traceback.format_exc()
 
             if checking:
@@ -644,15 +658,8 @@ class Connect(object):
             elif "forcibly closed" in tbMsg or "Connection is already closed" in tbMsg:
                 warnMsg = "connection was forcibly closed by the target URL"
             elif "timed out" in tbMsg:
-                if not conf.disablePrecon:
-                    singleTimeWarnMessage("turning off pre-connect mechanism because of connection time out(s)")
-                    conf.disablePrecon = True
-
-                    if kb.testMode and kb.testType not in (PAYLOAD.TECHNIQUE.TIME, PAYLOAD.TECHNIQUE.STACKED):
-                        kb.responseTimes.clear()
-
                 if kb.testMode and kb.testType not in (None, PAYLOAD.TECHNIQUE.TIME, PAYLOAD.TECHNIQUE.STACKED):
-                    singleTimeWarnMessage("there is a possibility that the target (or WAF/IPS/IDS) is dropping 'suspicious' requests")
+                    singleTimeWarnMessage("there is a possibility that the target (or WAF/IPS) is dropping 'suspicious' requests")
                     kb.droppingRequests = True
                 warnMsg = "connection timed out to the target URL"
             elif "Connection reset" in tbMsg:
@@ -661,7 +668,7 @@ class Connect(object):
                     conf.disablePrecon = True
 
                 if kb.testMode:
-                    singleTimeWarnMessage("there is a possibility that the target (or WAF/IPS/IDS) is resetting 'suspicious' requests")
+                    singleTimeWarnMessage("there is a possibility that the target (or WAF/IPS) is resetting 'suspicious' requests")
                     kb.droppingRequests = True
                 warnMsg = "connection reset to the target URL"
             elif "URLError" in tbMsg or "error" in tbMsg:
@@ -724,7 +731,7 @@ class Connect(object):
                 else:
                     logger.debug(warnMsg)
                 return Connect._retryProxy(**kwargs)
-            elif kb.testMode or kb.multiThreadMode:
+            elif kb.testMode or isMultiThreadMode():
                 logger.critical(warnMsg)
                 return None, None, None
             else:
@@ -738,24 +745,32 @@ class Connect(object):
                     page = getUnicode(page)
             socket.setdefaulttimeout(conf.timeout)
 
+        for function in kb.preprocessFunctions:
+            try:
+                page, responseHeaders, code = function(page, responseHeaders, code)
+            except Exception as ex:
+                errMsg = "error occurred while running preprocess "
+                errMsg += "function '%s' ('%s')" % (function.func_name, getSafeExString(ex))
+                raise SqlmapGenericException(errMsg)
+
         processResponse(page, responseHeaders, status)
 
         if conn and getattr(conn, "redurl", None):
             _ = urlparse.urlsplit(conn.redurl)
             _ = ("%s%s" % (_.path or "/", ("?%s" % _.query) if _.query else ""))
-            requestMsg = re.sub(r"(\n[A-Z]+ ).+?( HTTP/\d)", "\g<1>%s\g<2>" % getUnicode(_).replace("\\", "\\\\"), requestMsg, 1)
+            requestMsg = re.sub(r"(\n[A-Z]+ ).+?( HTTP/\d)", r"\g<1>%s\g<2>" % getUnicode(_).replace("\\", "\\\\"), requestMsg, 1)
 
             if kb.resendPostOnRedirect is False:
-                requestMsg = re.sub(r"(\[#\d+\]:\n)POST ", "\g<1>GET ", requestMsg)
+                requestMsg = re.sub(r"(\[#\d+\]:\n)POST ", r"\g<1>GET ", requestMsg)
                 requestMsg = re.sub(r"(?i)Content-length: \d+\n", "", requestMsg)
                 requestMsg = re.sub(r"(?s)\n\n.+", "\n", requestMsg)
 
             responseMsg += "[#%d] (%d %s):\r\n" % (threadData.lastRequestUID, conn.code, status)
         else:
-            responseMsg += "[#%d] (%d %s):\r\n" % (threadData.lastRequestUID, code, status)
+            responseMsg += "[#%d] (%s %s):\r\n" % (threadData.lastRequestUID, code, status)
 
         if responseHeaders:
-            logHeaders = "\r\n".join(["%s: %s" % (getUnicode(key.capitalize() if isinstance(key, basestring) else key), getUnicode(value)) for (key, value) in responseHeaders.items()])
+            logHeaders = getUnicode("".join(responseHeaders.headers).strip())
 
         if not skipLogTraffic:
             logHTTPTraffic(requestMsg, "%s%s\r\n\r\n%s" % (responseMsg, logHeaders, (page or "")[:MAX_CONNECTION_CHUNK_SIZE]), start, time.time())
@@ -810,7 +825,7 @@ class Connect(object):
 
         if conf.httpHeaders:
             headers = OrderedDict(conf.httpHeaders)
-            contentType = max(headers[_] if _.upper() == HTTP_HEADER.CONTENT_TYPE.upper() else None for _ in headers.keys())
+            contentType = max(headers[_] if _.upper() == HTTP_HEADER.CONTENT_TYPE.upper() else None for _ in headers)
 
             if (kb.postHint or conf.skipUrlEncode) and postUrlEncode:
                 postUrlEncode = False
@@ -819,11 +834,15 @@ class Connect(object):
                 conf.httpHeaders.append((HTTP_HEADER.CONTENT_TYPE, contentType))
 
         if payload:
+            delimiter = conf.paramDel or (DEFAULT_GET_POST_DELIMITER if place != PLACE.COOKIE else DEFAULT_COOKIE_DELIMITER)
+
             if not disableTampering and kb.tamperFunctions:
                 for function in kb.tamperFunctions:
+                    hints = {}
+
                     try:
-                        payload = function(payload=payload, headers=auxHeaders)
-                    except Exception, ex:
+                        payload = function(payload=payload, headers=auxHeaders, delimiter=delimiter, hints=hints)
+                    except Exception as ex:
                         errMsg = "error occurred while running tamper "
                         errMsg += "function '%s' ('%s')" % (function.func_name, getSafeExString(ex))
                         raise SqlmapGenericException(errMsg)
@@ -834,6 +853,18 @@ class Connect(object):
                         raise SqlmapValueException(errMsg)
 
                 value = agent.replacePayload(value, payload)
+
+                if hints:
+                    if HINT.APPEND in hints:
+                        value = "%s%s%s" % (value, delimiter, hints[HINT.APPEND])
+
+                    if HINT.PREPEND in hints:
+                        if place == PLACE.URI:
+                            match = re.search(r"\w+\s*=\s*%s" % PAYLOAD_DELIMITER, value) or re.search(r"[^?%s/]=\s*%s" % (re.escape(delimiter), PAYLOAD_DELIMITER), value)
+                            if match:
+                                value = value.replace(match.group(0), "%s%s%s" % (hints[HINT.PREPEND], delimiter, match.group(0)))
+                        else:
+                            value = "%s%s%s" % (hints[HINT.PREPEND], delimiter, value)
 
             logger.log(CUSTOM_LOGGING.PAYLOAD, safecharencode(payload.replace('\\', BOUNDARY_BACKSLASH_MARKER)).replace(BOUNDARY_BACKSLASH_MARKER, '\\'))
 
@@ -851,10 +882,10 @@ class Connect(object):
                 value = agent.replacePayload(value, payload)
             else:
                 # GET, POST, URI and Cookie payload needs to be thoroughly URL encoded
-                if (place in (PLACE.GET, PLACE.URI, PLACE.COOKIE) or place == PLACE.CUSTOM_HEADER and value.split(',')[0] == HTTP_HEADER.COOKIE) and not conf.skipUrlEncode or place in (PLACE.POST, PLACE.CUSTOM_POST) and postUrlEncode:
+                if (place in (PLACE.GET, PLACE.URI, PLACE.COOKIE) or place == PLACE.CUSTOM_HEADER and value.split(',')[0].upper() == HTTP_HEADER.COOKIE.upper()) and not conf.skipUrlEncode or place in (PLACE.POST, PLACE.CUSTOM_POST) and postUrlEncode:
                     skip = False
 
-                    if place == PLACE.COOKIE or place == PLACE.CUSTOM_HEADER and value.split(',')[0] == HTTP_HEADER.COOKIE:
+                    if place == PLACE.COOKIE or place == PLACE.CUSTOM_HEADER and value.split(',')[0].upper() == HTTP_HEADER.COOKIE.upper():
                         if kb.cookieEncodeChoice is None:
                             msg = "do you want to URL encode cookie values (implementation specific)? %s" % ("[Y/n]" if not conf.url.endswith(".aspx") else "[y/N]")  # Reference: https://support.microsoft.com/en-us/kb/313282
                             kb.cookieEncodeChoice = readInput(msg, default='Y' if not conf.url.endswith(".aspx") else 'N', boolean=True)
@@ -869,7 +900,7 @@ class Connect(object):
                         postUrlEncode = False
 
             if conf.hpp:
-                if not any(conf.url.lower().endswith(_.lower()) for _ in (WEB_API.ASP, WEB_API.ASPX)):
+                if not any(conf.url.lower().endswith(_.lower()) for _ in (WEB_PLATFORM.ASP, WEB_PLATFORM.ASPX)):
                     warnMsg = "HTTP parameter pollution should work only against "
                     warnMsg += "ASP(.NET) targets"
                     singleTimeWarnMessage(warnMsg)
@@ -941,71 +972,92 @@ class Connect(object):
         if conf.csrfToken:
             def _adjustParameter(paramString, parameter, newValue):
                 retVal = paramString
-                match = re.search(r"%s=[^&]*" % re.escape(parameter), paramString)
+
+                if urlencode(parameter) in paramString:
+                    parameter = urlencode(parameter)
+
+                match = re.search(r"%s=[^&]*" % re.escape(parameter), paramString, re.I)
                 if match:
-                    retVal = re.sub(re.escape(match.group(0)), "%s=%s" % (parameter, newValue), paramString)
+                    retVal = re.sub("(?i)%s" % re.escape(match.group(0)), ("%s=%s" % (parameter, newValue)).replace('\\', r'\\'), paramString)
                 else:
-                    match = re.search(r"(%s[\"']:[\"'])([^\"']+)" % re.escape(parameter), paramString)
+                    match = re.search(r"(%s[\"']:[\"'])([^\"']+)" % re.escape(parameter), paramString, re.I)
                     if match:
-                        retVal = re.sub(re.escape(match.group(0)), "%s%s" % (match.group(1), newValue), paramString)
+                        retVal = re.sub("(?i)%s" % re.escape(match.group(0)), "%s%s" % (match.group(1), newValue), paramString)
+
                 return retVal
 
+            token = AttribDict()
             page, headers, code = Connect.getPage(url=conf.csrfUrl or conf.url, data=conf.data if conf.csrfUrl == conf.url else None, method=conf.method if conf.csrfUrl == conf.url else None, cookie=conf.parameters.get(PLACE.COOKIE), direct=True, silent=True, ua=conf.parameters.get(PLACE.USER_AGENT), referer=conf.parameters.get(PLACE.REFERER), host=conf.parameters.get(PLACE.HOST))
-            token = extractRegexResult(r"(?i)<input[^>]+\bname=[\"']?%s[\"']?[^>]*\bvalue=(?P<result>(\"([^\"]+)|'([^']+)|([^ >]+)))" % re.escape(conf.csrfToken), page or "")
+            page = urldecode(page)  # for anti-CSRF tokens with special characters in their name (e.g. 'foo:bar=...')
+
+            match = re.search(r"(?i)<input[^>]+\bname=[\"']?(?P<name>%s)\b[^>]*\bvalue=[\"']?(?P<value>[^>'\"]*)" % conf.csrfToken, page or "", re.I)
+
+            if not match:
+                match = re.search(r"(?i)<input[^>]+\bvalue=[\"']?(?P<value>[^>'\"]*)[\"']?[^>]*\bname=[\"']?(?P<name>%s)\b" % conf.csrfToken, page or "", re.I)
+
+                if not match:
+                    match = re.search(r"(?P<name>%s)[\"']:[\"'](?P<value>[^\"']+)" % conf.csrfToken, page or "", re.I)
+
+                    if not match:
+                        match = re.search(r"\b(?P<name>%s)\s*[:=]\s*(?P<value>\w+)" % conf.csrfToken, str(headers), re.I)
+
+                        if not match:
+                            match = re.search(r"\b(?P<name>%s)\s*=\s*['\"]?(?P<value>[^;'\"]+)" % conf.csrfToken, page or "", re.I)
+
+            if match:
+                token.name, token.value = match.group("name"), match.group("value")
+
+                match = re.search(r"String\.fromCharCode\(([\d+, ]+)\)", token.value)
+                if match:
+                    token.value = "".join(chr(int(_)) for _ in match.group(1).replace(' ', "").split(','))
 
             if not token:
-                token = extractRegexResult(r"(?i)<input[^>]+\bvalue=(?P<result>(\"([^\"]+)|'([^']+)|([^ >]+)))[^>]+\bname=[\"']?%s[\"']?" % re.escape(conf.csrfToken), page or "")
-
-                if not token:
-                    match = re.search(r"%s[\"']:[\"']([^\"']+)" % re.escape(conf.csrfToken), page or "")
-                    token = match.group(1) if match else None
-
-            if not token:
-                if conf.csrfUrl != conf.url and code == httplib.OK:
+                if conf.csrfUrl and conf.csrfToken and conf.csrfUrl != conf.url and code == httplib.OK:
                     if headers and "text/plain" in headers.get(HTTP_HEADER.CONTENT_TYPE, ""):
-                        token = page
+                        token.name = conf.csrfToken
+                        token.value = page
 
-                if not token and conf.cj and any(_.name == conf.csrfToken for _ in conf.cj):
+                if not token and conf.cj and any(re.search(conf.csrfToken, _.name, re.I) for _ in conf.cj):
                     for _ in conf.cj:
-                        if _.name == conf.csrfToken:
-                            token = _.value
-                            if not any(conf.csrfToken in _ for _ in (conf.paramDict.get(PLACE.GET, {}), conf.paramDict.get(PLACE.POST, {}))):
+                        if re.search(conf.csrfToken, _.name, re.I):
+                            token.name, token.value = _.name, _.value
+                            if not any(re.search(conf.csrfToken, ' '.join(_), re.I) for _ in (conf.paramDict.get(PLACE.GET, {}), conf.paramDict.get(PLACE.POST, {}))):
                                 if post:
-                                    post = "%s%s%s=%s" % (post, conf.paramDel or DEFAULT_GET_POST_DELIMITER, conf.csrfToken, token)
+                                    post = "%s%s%s=%s" % (post, conf.paramDel or DEFAULT_GET_POST_DELIMITER, token.name, token.value)
                                 elif get:
-                                    get = "%s%s%s=%s" % (get, conf.paramDel or DEFAULT_GET_POST_DELIMITER, conf.csrfToken, token)
+                                    get = "%s%s%s=%s" % (get, conf.paramDel or DEFAULT_GET_POST_DELIMITER, token.name, token.value)
                                 else:
-                                    get = "%s=%s" % (conf.csrfToken, token)
+                                    get = "%s=%s" % (token.name, token.value)
                             break
 
                 if not token:
-                    errMsg = "anti-CSRF token '%s' can't be found at '%s'" % (conf.csrfToken, conf.csrfUrl or conf.url)
+                    errMsg = "anti-CSRF token '%s' can't be found at '%s'" % (conf.csrfToken._original, conf.csrfUrl or conf.url)
                     if not conf.csrfUrl:
                         errMsg += ". You can try to rerun by providing "
                         errMsg += "a valid value for option '--csrf-url'"
                     raise SqlmapTokenException(errMsg)
 
             if token:
-                token = token.strip("'\"")
+                token.value = token.value.strip("'\"")
 
                 for place in (PLACE.GET, PLACE.POST):
                     if place in conf.parameters:
                         if place == PLACE.GET and get:
-                            get = _adjustParameter(get, conf.csrfToken, token)
+                            get = _adjustParameter(get, token.name, token.value)
                         elif place == PLACE.POST and post:
-                            post = _adjustParameter(post, conf.csrfToken, token)
+                            post = _adjustParameter(post, token.name, token.value)
 
                 for i in xrange(len(conf.httpHeaders)):
-                    if conf.httpHeaders[i][0].lower() == conf.csrfToken.lower():
-                        conf.httpHeaders[i] = (conf.httpHeaders[i][0], token)
+                    if conf.httpHeaders[i][0].lower() == token.name.lower():
+                        conf.httpHeaders[i] = (conf.httpHeaders[i][0], token.value)
 
         if conf.rParam:
             def _randomizeParameter(paramString, randomParameter):
                 retVal = paramString
-                match = re.search(r"(\A|\b)%s=(?P<value>[^&;]+)" % re.escape(randomParameter), paramString)
+                match = re.search(r"(\A|\b)%s=(?P<value>[^&;]*)" % re.escape(randomParameter), paramString)
                 if match:
                     origValue = match.group("value")
-                    retVal = re.sub(r"(\A|\b)%s=[^&;]+" % re.escape(randomParameter), "%s=%s" % (randomParameter, randomizeParameterValue(origValue)), paramString)
+                    retVal = re.sub(r"(\A|\b)%s=[^&;]*" % re.escape(randomParameter), "%s=%s" % (randomParameter, randomizeParameterValue(origValue)), paramString)
                 return retVal
 
             for randomParameter in conf.rParam:
@@ -1024,7 +1076,6 @@ class Connect(object):
             delimiter = conf.paramDel or DEFAULT_GET_POST_DELIMITER
             variables = {"uri": uri, "lastPage": threadData.lastPage, "_locals": locals()}
             originals = {}
-            keywords = keyword.kwlist
 
             if not get and PLACE.URI in conf.parameters:
                 query = urlparse.urlsplit(uri).query or ""
@@ -1039,8 +1090,6 @@ class Connect(object):
                         if safeVariableNaming(name) != name:
                             conf.evalCode = re.sub(r"\b%s\b" % re.escape(name), safeVariableNaming(name), conf.evalCode)
                             name = safeVariableNaming(name)
-                        elif name in keywords:
-                            name = "%s%s" % (name, EVALCODE_KEYWORD_SUFFIX)
                         value = urldecode(value, convall=True, spaceplus=(item == post and kb.postSpaceToPlus))
                         variables[name] = value
 
@@ -1052,31 +1101,29 @@ class Connect(object):
                         if safeVariableNaming(name) != name:
                             conf.evalCode = re.sub(r"\b%s\b" % re.escape(name), safeVariableNaming(name), conf.evalCode)
                             name = safeVariableNaming(name)
-                        elif name in keywords:
-                            name = "%s%s" % (name, EVALCODE_KEYWORD_SUFFIX)
                         value = urldecode(value, convall=True)
                         variables[name] = value
 
             while True:
                 try:
                     compiler.parse(unicodeencode(conf.evalCode.replace(';', '\n')))
-                except SyntaxError, ex:
+                except SyntaxError as ex:
                     if ex.text:
                         original = replacement = ex.text.strip()
+
                         if '=' in original:
                             name, value = original.split('=', 1)
                             name = name.strip()
                             if safeVariableNaming(name) != name:
                                 replacement = re.sub(r"\b%s\b" % re.escape(name), safeVariableNaming(name), replacement)
-                            elif name in keywords:
-                                replacement = re.sub(r"\b%s\b" % re.escape(name), "%s%s" % (name, EVALCODE_KEYWORD_SUFFIX), replacement)
                         else:
                             for _ in re.findall(r"[A-Za-z_]+", original)[::-1]:
-                                if _ in keywords:
-                                    replacement = replacement.replace(_, "%s%s" % (_, EVALCODE_KEYWORD_SUFFIX))
+                                if safeVariableNaming(_) != _:
+                                    replacement = replacement.replace(_, safeVariableNaming(_))
                                     break
+
                         if original == replacement:
-                            conf.evalCode = conf.evalCode.replace(EVALCODE_KEYWORD_SUFFIX, "")
+                            conf.evalCode = conf.evalCode.replace(EVALCODE_ENCODED_PREFIX, "")
                             break
                         else:
                             conf.evalCode = conf.evalCode.replace(getUnicode(ex.text.strip(), UNICODE_ENCODING), replacement)
@@ -1088,12 +1135,7 @@ class Connect(object):
             originals.update(variables)
             evaluateCode(conf.evalCode, variables)
 
-            for variable in variables.keys():
-                if variable.endswith(EVALCODE_KEYWORD_SUFFIX):
-                    value = variables[variable]
-                    del variables[variable]
-                    variables[variable.replace(EVALCODE_KEYWORD_SUFFIX, "")] = value
-
+            for variable in list(variables.keys()):
                 if unsafeVariableNaming(variable) != variable:
                     value = variables[variable]
                     del variables[variable]
@@ -1111,33 +1153,33 @@ class Connect(object):
                             if kb.postHint in (POST_HINT.XML, POST_HINT.SOAP):
                                 if re.search(r"<%s\b" % re.escape(name), post):
                                     found = True
-                                    post = re.sub(r"(?s)(<%s\b[^>]*>)(.*?)(</%s)" % (re.escape(name), re.escape(name)), "\g<1>%s\g<3>" % value.replace('\\', r'\\'), post)
+                                    post = re.sub(r"(?s)(<%s\b[^>]*>)(.*?)(</%s)" % (re.escape(name), re.escape(name)), r"\g<1>%s\g<3>" % value.replace('\\', r'\\'), post)
                                 elif re.search(r"\b%s>" % re.escape(name), post):
                                     found = True
-                                    post = re.sub(r"(?s)(\b%s>)(.*?)(</[^<]*\b%s>)" % (re.escape(name), re.escape(name)), "\g<1>%s\g<3>" % value.replace('\\', r'\\'), post)
+                                    post = re.sub(r"(?s)(\b%s>)(.*?)(</[^<]*\b%s>)" % (re.escape(name), re.escape(name)), r"\g<1>%s\g<3>" % value.replace('\\', r'\\'), post)
 
                             regex = r"\b(%s)\b([^\w]+)(\w+)" % re.escape(name)
                             if not found and re.search(regex, (post or "")):
                                 found = True
-                                post = re.sub(regex, "\g<1>\g<2>%s" % value.replace('\\', r'\\'), post)
+                                post = re.sub(regex, r"\g<1>\g<2>%s" % value.replace('\\', r'\\'), post)
 
                         regex = r"((\A|%s)%s=).+?(%s|\Z)" % (re.escape(delimiter), re.escape(name), re.escape(delimiter))
                         if not found and re.search(regex, (post or "")):
                             found = True
-                            post = re.sub(regex, "\g<1>%s\g<3>" % value.replace('\\', r'\\'), post)
+                            post = re.sub(regex, r"\g<1>%s\g<3>" % value.replace('\\', r'\\'), post)
 
                         if re.search(regex, (get or "")):
                             found = True
-                            get = re.sub(regex, "\g<1>%s\g<3>" % value.replace('\\', r'\\'), get)
+                            get = re.sub(regex, r"\g<1>%s\g<3>" % value.replace('\\', r'\\'), get)
 
                         if re.search(regex, (query or "")):
                             found = True
-                            uri = re.sub(regex.replace(r"\A", r"\?"), "\g<1>%s\g<3>" % value.replace('\\', r'\\'), uri)
+                            uri = re.sub(regex.replace(r"\A", r"\?"), r"\g<1>%s\g<3>" % value.replace('\\', r'\\'), uri)
 
                         regex = r"((\A|%s)%s=).+?(%s|\Z)" % (re.escape(conf.cookieDel or DEFAULT_COOKIE_DELIMITER), re.escape(name), re.escape(conf.cookieDel or DEFAULT_COOKIE_DELIMITER))
                         if re.search(regex, (cookie or "")):
                             found = True
-                            cookie = re.sub(regex, "\g<1>%s\g<3>" % value.replace('\\', r'\\'), cookie)
+                            cookie = re.sub(regex, r"\g<1>%s\g<3>" % value.replace('\\', r'\\'), cookie)
 
                         if not found:
                             if post is not None:
@@ -1168,7 +1210,7 @@ class Connect(object):
                     singleTimeWarnMessage(warnMsg)
 
                 warnMsg = "[%s] [WARNING] %stime-based comparison requires " % (time.strftime("%X"), "(case) " if kb.responseTimeMode else "")
-                warnMsg += "larger statistical model, please wait"
+                warnMsg += "%s statistical model, please wait" % ("larger" if len(kb.responseTimes) == 1 else "reset of")
                 dataToStdout(warnMsg)
 
                 while len(kb.responseTimes[kb.responseTimeMode]) < MIN_TIME_RESPONSES:
@@ -1223,14 +1265,17 @@ class Connect(object):
                 _, headers, code = Connect.getPage(url=uri, get=get, post=post, method=method, cookie=cookie, ua=ua, referer=referer, host=host, silent=silent, auxHeaders=auxHeaders, raise404=raise404, skipRead=(kb.nullConnection == NULLCONNECTION.SKIP_READ))
 
                 if headers:
-                    if kb.nullConnection in (NULLCONNECTION.HEAD, NULLCONNECTION.SKIP_READ) and headers.get(HTTP_HEADER.CONTENT_LENGTH):
-                        pageLength = int(headers[HTTP_HEADER.CONTENT_LENGTH])
-                    elif kb.nullConnection == NULLCONNECTION.RANGE and headers.get(HTTP_HEADER.CONTENT_RANGE):
-                        pageLength = int(headers[HTTP_HEADER.CONTENT_RANGE][headers[HTTP_HEADER.CONTENT_RANGE].find('/') + 1:])
+                    try:
+                        if kb.nullConnection in (NULLCONNECTION.HEAD, NULLCONNECTION.SKIP_READ) and headers.get(HTTP_HEADER.CONTENT_LENGTH):
+                            pageLength = int(headers[HTTP_HEADER.CONTENT_LENGTH].split(',')[0])
+                        elif kb.nullConnection == NULLCONNECTION.RANGE and headers.get(HTTP_HEADER.CONTENT_RANGE):
+                            pageLength = int(headers[HTTP_HEADER.CONTENT_RANGE][headers[HTTP_HEADER.CONTENT_RANGE].find('/') + 1:])
+                    except ValueError:
+                        pass
             finally:
                 kb.pageCompress = popValue()
 
-        if not pageLength:
+        if pageLength is None:
             try:
                 page, headers, code = Connect.getPage(url=uri, get=get, post=post, method=method, cookie=cookie, ua=ua, referer=referer, host=host, silent=silent, auxHeaders=auxHeaders, response=response, raise404=raise404, ignoreTimeout=timeBasedCompare)
             except MemoryError:
@@ -1238,11 +1283,20 @@ class Connect(object):
                 warnMsg = "site returned insanely large response"
                 if kb.testMode:
                     warnMsg += " in testing phase. This is a common "
-                    warnMsg += "behavior in custom WAF/IPS/IDS solutions"
+                    warnMsg += "behavior in custom WAF/IPS solutions"
                 singleTimeWarnMessage(warnMsg)
 
-        if conf.secondOrder:
-            page, headers, code = Connect.getPage(url=conf.secondOrder, cookie=cookie, ua=ua, silent=silent, auxHeaders=auxHeaders, response=response, raise404=False, ignoreTimeout=timeBasedCompare, refreshing=True)
+        if conf.secondUrl:
+            page, headers, code = Connect.getPage(url=conf.secondUrl, cookie=cookie, ua=ua, silent=silent, auxHeaders=auxHeaders, response=response, raise404=False, ignoreTimeout=timeBasedCompare, refreshing=True)
+        elif kb.secondReq and IPS_WAF_CHECK_PAYLOAD not in urllib.unquote(value or ""):
+            def _(value):
+                if kb.customInjectionMark in (value or ""):
+                    if payload is None:
+                        value = value.replace(kb.customInjectionMark, "")
+                    else:
+                        value = re.sub(r"\w*%s" % re.escape(kb.customInjectionMark), payload, value)
+                return value
+            page, headers, code = Connect.getPage(url=_(kb.secondReq[0]), post=_(kb.secondReq[2]), method=kb.secondReq[1], cookie=kb.secondReq[3], silent=silent, auxHeaders=dict(auxHeaders, **dict(kb.secondReq[4])), response=response, raise404=False, ignoreTimeout=timeBasedCompare, refreshing=True)
 
         threadData.lastQueryDuration = calculateDeltaSeconds(start)
         threadData.lastPage = page
@@ -1258,6 +1312,8 @@ class Connect(object):
         elif noteResponseTime:
             kb.responseTimes.setdefault(kb.responseTimeMode, [])
             kb.responseTimes[kb.responseTimeMode].append(threadData.lastQueryDuration)
+            if len(kb.responseTimes[kb.responseTimeMode]) > MAX_TIME_RESPONSES:
+                kb.responseTimes[kb.responseTimeMode] = kb.responseTimes[kb.responseTimeMode][-MAX_TIME_RESPONSES // 2:]
 
         if not response and removeReflection:
             page = removeReflectiveValues(page, payload)

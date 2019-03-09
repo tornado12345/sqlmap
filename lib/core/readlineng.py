@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2018 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
@@ -56,9 +56,7 @@ if PLATFORM == 'mac' and _readline:
 # http://mail.python.org/pipermail/python-dev/2003-August/037845.html
 # has the original discussion.
 if _readline:
-    try:
-        _readline.clear_history()
-    except AttributeError:
+    if not hasattr(_readline, "clear_history"):
         def clear_history():
             pass
 

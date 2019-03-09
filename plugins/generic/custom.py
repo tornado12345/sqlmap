@@ -1,9 +1,11 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2018 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
+
+from __future__ import print_function
 
 import re
 import sys
@@ -70,7 +72,7 @@ class Custom:
 
                 output = NULL
 
-        except SqlmapNoneDataException, ex:
+        except SqlmapNoneDataException as ex:
             logger.warn(ex)
 
         return output
@@ -88,12 +90,13 @@ class Custom:
             try:
                 query = raw_input("sql-shell> ")
                 query = getUnicode(query, encoding=sys.stdin.encoding)
+                query = query.strip("; ")
             except KeyboardInterrupt:
-                print
+                print()
                 errMsg = "user aborted"
                 logger.error(errMsg)
             except EOFError:
-                print
+                print()
                 errMsg = "exit"
                 logger.error(errMsg)
                 break
@@ -127,8 +130,8 @@ class Custom:
 
             snippet = getSQLSnippet(Backend.getDbms(), filename)
 
-            if snippet and all(query.strip().upper().startswith("SELECT") for query in filter(None, snippet.split(';' if ';' in snippet else '\n'))):
-                for query in filter(None, snippet.split(';' if ';' in snippet else '\n')):
+            if snippet and all(query.strip().upper().startswith("SELECT") for query in (_ for _ in snippet.split(';' if ';' in snippet else '\n') if _)):
+                for query in (_ for _ in snippet.split(';' if ';' in snippet else '\n') if _):
                     query = query.strip()
                     if query:
                         conf.dumper.query(query, self.sqlQuery(query))

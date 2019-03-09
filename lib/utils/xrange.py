@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2018 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
@@ -49,18 +49,16 @@ class xrange(object):
         return hash(self._slice)
 
     def __cmp__(self, other):
-        return (cmp(type(self), type(other)) or
-                cmp(self._slice, other._slice))
+        return (cmp(type(self), type(other)) or cmp(self._slice, other._slice))
 
     def __repr__(self):
-        return '%s(%r, %r, %r)' % (type(self).__name__,
-                                   self.start, self.stop, self.step)
+        return '%s(%r, %r, %r)' % (type(self).__name__, self.start, self.stop, self.step)
 
     def __len__(self):
         return self._len()
 
     def _len(self):
-        return max(0, int((self.stop - self.start) / self.step))
+        return max(0, int((self.stop - self.start) // self.step))
 
     def __contains__(self, value):
         return (self.start <= value < self.stop) and (value - self.start) % self.step == 0

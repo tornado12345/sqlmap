@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2018 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
@@ -109,7 +109,8 @@ optDict = {
         "uChar": "string",
         "uFrom": "string",
         "dnsDomain": "string",
-        "secondOrder": "string",
+        "secondUrl": "string",
+        "secondReq": "string",
     },
 
     "Fingerprint": {
@@ -164,9 +165,9 @@ optDict = {
     },
 
     "File system": {
-        "rFile": "string",
-        "wFile": "string",
-        "dFile": "string",
+        "fileRead": "string",
+        "fileWrite": "string",
+        "fileDest": "string",
     },
 
     "Takeover": {
@@ -191,7 +192,6 @@ optDict = {
     },
 
     "General": {
-        # "xmlFile": "string",
         "trafficFile": "string",
         "batch": "boolean",
         "binaryFields": "string",
@@ -210,6 +210,8 @@ optDict = {
         "hexConvert": "boolean",
         "outputDir": "string",
         "parseErrors": "boolean",
+        "preprocess": "string",
+        "repair": "boolean",
         "saveConfig": "string",
         "scope": "string",
         "testFilter": "string",
@@ -226,9 +228,10 @@ optDict = {
         "disableColoring": "boolean",
         "googlePage": "integer",
         "identifyWaf": "boolean",
+        "listTampers": "boolean",
         "mobile": "boolean",
         "offline": "boolean",
-        "purgeOutput": "boolean",
+        "purge": "boolean",
         "skipWaf": "boolean",
         "smart": "boolean",
         "tmpDir": "string",

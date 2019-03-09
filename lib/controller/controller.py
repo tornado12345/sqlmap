@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2018 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
@@ -56,9 +56,11 @@ from lib.core.exception import SqlmapNoneDataException
 from lib.core.exception import SqlmapNotVulnerableException
 from lib.core.exception import SqlmapSilentQuitException
 from lib.core.exception import SqlmapSkipTargetException
+from lib.core.exception import SqlmapSystemException
 from lib.core.exception import SqlmapValueException
 from lib.core.exception import SqlmapUserQuitException
 from lib.core.settings import ASP_NET_CONTROL_REGEX
+from lib.core.settings import CSRF_TOKEN_PARAMETER_INFIXES
 from lib.core.settings import DEFAULT_GET_POST_DELIMITER
 from lib.core.settings import EMPTY_FORM_FIELDS_REGEX
 from lib.core.settings import IGNORE_PARAMETERS
@@ -69,6 +71,7 @@ from lib.core.settings import REFERER_ALIASES
 from lib.core.settings import USER_AGENT_ALIASES
 from lib.core.target import initTargetEnv
 from lib.core.target import setupTargetEnv
+from lib.utils.hash import crackHashFile
 
 def _selectInjection():
     """
@@ -87,7 +90,7 @@ def _selectInjection():
         if point not in points:
             points[point] = injection
         else:
-            for key in points[point].keys():
+            for key in points[point]:
                 if key != 'data':
                     points[point][key] = points[point][key] or injection[key]
             points[point]['data'].update(injection['data'])
@@ -241,18 +244,22 @@ def _saveToResultsFile():
         if key not in results:
             results[key] = []
 
-        results[key].extend(injection.data.keys())
+        results[key].extend(list(injection.data.keys()))
 
-    for key, value in results.items():
-        place, parameter, notes = key
-        line = "%s,%s,%s,%s,%s%s" % (safeCSValue(kb.originalUrls.get(conf.url) or conf.url), place, parameter, "".join(techniques[_][0].upper() for _ in sorted(value)), notes, os.linesep)
-        conf.resultsFP.write(line)
+    try:
+        for key, value in results.items():
+            place, parameter, notes = key
+            line = "%s,%s,%s,%s,%s%s" % (safeCSValue(kb.originalUrls.get(conf.url) or conf.url), place, parameter, "".join(techniques[_][0].upper() for _ in sorted(value)), notes, os.linesep)
+            conf.resultsFP.write(line)
 
-    if not results:
-        line = "%s,,,,%s" % (conf.url, os.linesep)
-        conf.resultsFP.write(line)
+        if not results:
+            line = "%s,,,,%s" % (conf.url, os.linesep)
+            conf.resultsFP.write(line)
 
-    conf.resultsFP.flush()
+        conf.resultsFP.flush()
+    except IOError as ex:
+        errMsg = "unable to write to the results file '%s' ('%s'). " % (conf.resultsFilename, getSafeExString(ex))
+        raise SqlmapSystemException(errMsg)
 
 @stackedmethod
 def start():
@@ -261,6 +268,9 @@ def start():
     stability and all GET, POST, Cookie and User-Agent parameters to
     check if they are dynamic and SQL injection affected
     """
+
+    if conf.hashFile:
+        crackHashFile(conf.hashFile)
 
     if conf.direct:
         initTargetEnv()
@@ -307,6 +317,7 @@ def start():
             conf.cookie = targetCookie
             conf.httpHeaders = list(initialHeaders)
             conf.httpHeaders.extend(targetHeaders or [])
+            conf.httpHeaders = [conf.httpHeaders[i] for i in xrange(len(conf.httpHeaders)) if conf.httpHeaders[i][0].upper() not in (__[0].upper() for __ in conf.httpHeaders[i + 1:])]
 
             initTargetEnv()
             parseTargetUrl()
@@ -416,7 +427,7 @@ def start():
                     checkStability()
 
                 # Do a little prioritization reorder of a testable parameter list
-                parameters = conf.parameters.keys()
+                parameters = list(conf.parameters.keys())
 
                 # Order of testing list (first to last)
                 orderList = (PLACE.CUSTOM_POST, PLACE.CUSTOM_HEADER, PLACE.URI, PLACE.POST, PLACE.GET)
@@ -480,7 +491,7 @@ def start():
                         elif parameter in conf.testParameter:
                             pass
 
-                        elif parameter == conf.rParam:
+                        elif parameter in conf.rParam:
                             testSqlInj = False
 
                             infoMsg = "skipping randomizing %s parameter '%s'" % (paramType, parameter)
@@ -498,14 +509,14 @@ def start():
                             infoMsg = "skipping %s parameter '%s'" % (paramType, parameter)
                             logger.info(infoMsg)
 
-                        elif parameter == conf.csrfToken:
+                        elif conf.csrfToken and re.search(conf.csrfToken, parameter, re.I):
                             testSqlInj = False
 
                             infoMsg = "skipping anti-CSRF token parameter '%s'" % parameter
                             logger.info(infoMsg)
 
                         # Ignore session-like parameters for --level < 4
-                        elif conf.level < 4 and (parameter.upper() in IGNORE_PARAMETERS or parameter.upper().startswith(GOOGLE_ANALYTICS_COOKIE_PREFIX)):
+                        elif conf.level < 4 and (parameter.upper() in IGNORE_PARAMETERS or any(_ in parameter.lower() for _ in CSRF_TOKEN_PARAMETER_INFIXES) or parameter.upper().startswith(GOOGLE_ANALYTICS_COOKIE_PREFIX)):
                             testSqlInj = False
 
                             infoMsg = "ignoring %s parameter '%s'" % (paramType, parameter)
@@ -524,7 +535,7 @@ def start():
 
                                     testSqlInj = False
                             else:
-                                infoMsg = "%s parameter '%s' is dynamic" % (paramType, parameter)
+                                infoMsg = "%s parameter '%s' appears to be dynamic" % (paramType, parameter)
                                 logger.info(infoMsg)
 
                         kb.testedParams.add(paramKey)
@@ -631,6 +642,9 @@ def start():
                         errMsg += "involved (e.g. WAF) maybe you could try to use "
                         errMsg += "option '--tamper' (e.g. '--tamper=space2comment')"
 
+                        if not conf.randomAgent:
+                            errMsg += " and/or switch '--random-agent'"
+
                     raise SqlmapNotVulnerableException(errMsg.rstrip('.'))
             else:
                 # Flush the flag
@@ -675,7 +689,7 @@ def start():
         except SqlmapSilentQuitException:
             raise
 
-        except SqlmapBaseException, ex:
+        except SqlmapBaseException as ex:
             errMsg = getSafeExString(ex)
 
             if conf.multipleTargets:

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2018 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
@@ -21,6 +21,8 @@ def detect(get_page):
         retval |= "Access Denied - Sucuri Website Firewall" in (page or "")
         retval |= "Sucuri WebSite Firewall - CloudProxy - Access Denied" in (page or "")
         retval |= re.search(r"Questions\?.+cloudproxy@sucuri\.net", (page or "")) is not None
+        retval |= headers.get("X-Sucuri-ID") is not None
+        retval |= headers.get("X-Sucuri-Cache") is not None
         if retval:
             break
 

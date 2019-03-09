@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2018 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
@@ -9,6 +9,7 @@ import atexit
 import os
 
 from lib.core import readlineng as readline
+from lib.core.common import getSafeExString
 from lib.core.data import logger
 from lib.core.data import paths
 from lib.core.enums import AUTOCOMPLETE_TYPE
@@ -53,28 +54,33 @@ def clearHistory():
     readline.clear_history()
 
 def saveHistory(completion=None):
-    if not readlineAvailable():
-        return
-
-    if completion == AUTOCOMPLETE_TYPE.SQL:
-        historyPath = paths.SQL_SHELL_HISTORY
-    elif completion == AUTOCOMPLETE_TYPE.OS:
-        historyPath = paths.OS_SHELL_HISTORY
-    else:
-        historyPath = paths.SQLMAP_SHELL_HISTORY
-
     try:
-        with open(historyPath, "w+"):
+        if not readlineAvailable():
+            return
+
+        if completion == AUTOCOMPLETE_TYPE.SQL:
+            historyPath = paths.SQL_SHELL_HISTORY
+        elif completion == AUTOCOMPLETE_TYPE.OS:
+            historyPath = paths.OS_SHELL_HISTORY
+        elif completion == AUTOCOMPLETE_TYPE.API:
+            historyPath = paths.API_SHELL_HISTORY
+        else:
+            historyPath = paths.SQLMAP_SHELL_HISTORY
+
+        try:
+            with open(historyPath, "w+"):
+                pass
+        except:
             pass
-    except:
-        pass
 
-    readline.set_history_length(MAX_HISTORY_LENGTH)
-    try:
-        readline.write_history_file(historyPath)
-    except IOError, msg:
-        warnMsg = "there was a problem writing the history file '%s' (%s)" % (historyPath, msg)
-        logger.warn(warnMsg)
+        readline.set_history_length(MAX_HISTORY_LENGTH)
+        try:
+            readline.write_history_file(historyPath)
+        except IOError as ex:
+            warnMsg = "there was a problem writing the history file '%s' (%s)" % (historyPath, getSafeExString(ex))
+            logger.warn(warnMsg)
+    except KeyboardInterrupt:
+        pass
 
 def loadHistory(completion=None):
     if not readlineAvailable():
@@ -86,14 +92,16 @@ def loadHistory(completion=None):
         historyPath = paths.SQL_SHELL_HISTORY
     elif completion == AUTOCOMPLETE_TYPE.OS:
         historyPath = paths.OS_SHELL_HISTORY
+    elif completion == AUTOCOMPLETE_TYPE.API:
+        historyPath = paths.API_SHELL_HISTORY
     else:
         historyPath = paths.SQLMAP_SHELL_HISTORY
 
     if os.path.exists(historyPath):
         try:
             readline.read_history_file(historyPath)
-        except IOError, msg:
-            warnMsg = "there was a problem loading the history file '%s' (%s)" % (historyPath, msg)
+        except IOError as ex:
+            warnMsg = "there was a problem loading the history file '%s' (%s)" % (historyPath, getSafeExString(ex))
             logger.warn(warnMsg)
 
 def autoCompletion(completion=None, os=None, commands=None):

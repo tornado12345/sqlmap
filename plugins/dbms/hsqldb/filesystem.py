@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2018 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
@@ -17,5 +17,5 @@ class Filesystem(GenericFilesystem):
         raise SqlmapUnsupportedFeatureException(errMsg)
 
     def writeFile(self, wFile, dFile, fileType=None, forceCheck=False):
-        errMsg = "on HSQLDB it is not possible to read files"
+        errMsg = "on HSQLDB it is not possible to write files"
         raise SqlmapUnsupportedFeatureException(errMsg)

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2018 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
@@ -45,7 +45,7 @@ class Fingerprint(GenericFingerprint):
         value += "active fingerprint: %s" % actVer
 
         if kb.bannerFp:
-            banVer = kb.bannerFp["dbmsVersion"] if 'dbmsVersion' in kb.bannerFp else None
+            banVer = kb.bannerFp.get("dbmsVersion")
             banVer = Format.getDbms([banVer])
             value += "\n%sbanner parsing fingerprint: %s" % (blank, banVer)
 
@@ -60,7 +60,7 @@ class Fingerprint(GenericFingerprint):
         """
         References for fingerprint:
 
-        * http://www.postgresql.org/docs/9.1/interactive/release.html (up to 9.1.3)
+        * https://www.postgresql.org/docs/current/static/release.html
         """
 
         if not conf.extensiveFp and Backend.isDbmsWithin(PGSQL_ALIASES):
@@ -73,7 +73,7 @@ class Fingerprint(GenericFingerprint):
         infoMsg = "testing %s" % DBMS.PGSQL
         logger.info(infoMsg)
 
-        result = inject.checkBooleanExpression("[RANDNUM]::int=[RANDNUM]")
+        result = inject.checkBooleanExpression("QUOTE_IDENT(NULL) IS NULL")
 
         if result:
             infoMsg = "confirming %s" % DBMS.PGSQL
@@ -97,8 +97,12 @@ class Fingerprint(GenericFingerprint):
             infoMsg = "actively fingerprinting %s" % DBMS.PGSQL
             logger.info(infoMsg)
 
-            if inject.checkBooleanExpression("TO_JSONB(1) IS NOT NULL"):
-                Backend.setVersion(">= 9.5.0")
+            if inject.checkBooleanExpression("XMLTABLE(NULL) IS NULL"):
+                Backend.setVersion(">= 10.0")
+            elif inject.checkBooleanExpression("SIND(0)=0"):
+                Backend.setVersionList([">= 9.6.0", "< 10.0"])
+            elif inject.checkBooleanExpression("TO_JSONB(1) IS NOT NULL"):
+                Backend.setVersionList([">= 9.5.0", "< 9.6.0"])
             elif inject.checkBooleanExpression("JSON_TYPEOF(NULL) IS NULL"):
                 Backend.setVersionList([">= 9.4.0", "< 9.5.0"])
             elif inject.checkBooleanExpression("ARRAY_REPLACE(NULL,1,1) IS NULL"):

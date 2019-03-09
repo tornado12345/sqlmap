@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2018 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
@@ -19,7 +19,7 @@ def dependencies():
 
 def tamper(payload, **kwargs):
     """
-    Embraces complete query with versioned comment
+    Embraces complete query with (MySQL) versioned comment
 
     Requirement:
         * MySQL
@@ -28,7 +28,7 @@ def tamper(payload, **kwargs):
         * MySQL 5.0
 
     Notes:
-        * Useful to bypass ModSecurity WAF/IDS
+        * Useful to bypass ModSecurity WAF
 
     >>> import random
     >>> random.seed(0)

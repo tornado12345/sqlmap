@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2018 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
@@ -9,7 +9,7 @@ import codecs
 import os
 import cProfile
 
-from lib.core.common import getUnicode
+from lib.core.common import getSafeExString
 from lib.core.data import logger
 from lib.core.data import paths
 from lib.core.settings import UNICODE_ENCODING
@@ -25,8 +25,8 @@ def profile(profileOutputFile=None, dotOutputFile=None, imageOutputFile=None):
         from thirdparty.xdot import xdot
         import gtk
         import pydot
-    except ImportError, e:
-        errMsg = "profiling requires third-party libraries ('%s') " % getUnicode(e, UNICODE_ENCODING)
+    except ImportError as ex:
+        errMsg = "profiling requires third-party libraries ('%s') " % getSafeExString(ex)
         errMsg += "(Hint: 'sudo apt-get install python-pydot python-pyparsing python-profiler graphviz')"
         logger.error(errMsg)
 
@@ -50,7 +50,7 @@ def profile(profileOutputFile=None, dotOutputFile=None, imageOutputFile=None):
     if os.path.exists(imageOutputFile):
         os.remove(imageOutputFile)
 
-    infoMsg = "profiling the execution into file %s" % profileOutputFile
+    infoMsg = "profiling the execution into file '%s'" % profileOutputFile
     logger.info(infoMsg)
 
     # Start sqlmap main function and generate a raw profile file
@@ -80,15 +80,20 @@ def profile(profileOutputFile=None, dotOutputFile=None, imageOutputFile=None):
     if isinstance(pydotGraph, list):
         pydotGraph = pydotGraph[0]
 
-    pydotGraph.write_png(imageOutputFile)
+    try:
+        pydotGraph.write_png(imageOutputFile)
+    except OSError:
+        errMsg = "profiling requires graphviz installed "
+        errMsg += "(Hint: 'sudo apt-get install graphviz')"
+        logger.error(errMsg)
+    else:
+        infoMsg = "displaying interactive graph with xdot library"
+        logger.info(infoMsg)
 
-    infoMsg = "displaying interactive graph with xdot library"
-    logger.info(infoMsg)
-
-    # Display interactive Graphviz dot file by using extra/xdot/xdot.py
-    # http://code.google.com/p/jrfonseca/wiki/XDot
-    win = xdot.DotWindow()
-    win.connect('destroy', gtk.main_quit)
-    win.set_filter("dot")
-    win.open_file(dotOutputFile)
-    gtk.main()
+        # Display interactive Graphviz dot file by using extra/xdot/xdot.py
+        # http://code.google.com/p/jrfonseca/wiki/XDot
+        win = xdot.DotWindow()
+        win.connect('destroy', gtk.main_quit)
+        win.set_filter("dot")
+        win.open_file(dotOutputFile)
+        gtk.main()

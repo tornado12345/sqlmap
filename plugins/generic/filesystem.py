@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2018 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
@@ -28,6 +28,7 @@ from lib.core.enums import CHARSET_TYPE
 from lib.core.enums import EXPECTED
 from lib.core.enums import PAYLOAD
 from lib.core.exception import SqlmapUndefinedMethod
+from lib.core.settings import TAKEOVER_TABLE_PREFIX
 from lib.core.settings import UNICODE_ENCODING
 from lib.request import inject
 
@@ -37,7 +38,7 @@ class Filesystem:
     """
 
     def __init__(self):
-        self.fileTblName = "sqlmapfile"
+        self.fileTblName = "%sfile" % TAKEOVER_TABLE_PREFIX
         self.tblField = "data"
 
     def _checkFileLength(self, localFile, remoteFile, fileRead=False):
@@ -284,17 +285,23 @@ class Filesystem:
         if conf.direct or isStackingAvailable():
             if isStackingAvailable():
                 debugMsg = "going to upload the file '%s' with " % fileType
-                debugMsg += "stacked query SQL injection technique"
+                debugMsg += "stacked query technique"
                 logger.debug(debugMsg)
 
             written = self.stackedWriteFile(localFile, remoteFile, fileType, forceCheck)
             self.cleanup(onlyFileTbl=True)
         elif isTechniqueAvailable(PAYLOAD.TECHNIQUE.UNION) and Backend.isDbms(DBMS.MYSQL):
             debugMsg = "going to upload the file '%s' with " % fileType
-            debugMsg += "UNION query SQL injection technique"
+            debugMsg += "UNION query technique"
             logger.debug(debugMsg)
 
             written = self.unionWriteFile(localFile, remoteFile, fileType, forceCheck)
+        elif Backend.isDbms(DBMS.MYSQL):
+            debugMsg = "going to upload the file '%s' with " % fileType
+            debugMsg += "LINES TERMINATED BY technique"
+            logger.debug(debugMsg)
+
+            written = self.linesTerminatedWriteFile(localFile, remoteFile, fileType, forceCheck)
         else:
             errMsg = "none of the SQL injection techniques detected can "
             errMsg += "be used to write files to the underlying file "

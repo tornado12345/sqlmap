@@ -1,11 +1,10 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2018 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
-import codecs
 import functools
 import os
 import re
@@ -45,6 +44,7 @@ from lib.core.enums import POST_HINT
 from lib.core.exception import SqlmapFilePathException
 from lib.core.exception import SqlmapGenericException
 from lib.core.exception import SqlmapMissingPrivileges
+from lib.core.exception import SqlmapNoneDataException
 from lib.core.exception import SqlmapSystemException
 from lib.core.exception import SqlmapUserQuitException
 from lib.core.option import _setDBMS
@@ -52,9 +52,11 @@ from lib.core.option import _setKnowledgeBaseAttributes
 from lib.core.option import _setAuthCred
 from lib.core.settings import ASTERISK_MARKER
 from lib.core.settings import CSRF_TOKEN_PARAMETER_INFIXES
+from lib.core.settings import CUSTOM_INJECTION_MARK_CHAR
 from lib.core.settings import DEFAULT_GET_POST_DELIMITER
 from lib.core.settings import HOST_ALIASES
 from lib.core.settings import ARRAY_LIKE_RECOGNITION_REGEX
+from lib.core.settings import INJECT_HERE_REGEX
 from lib.core.settings import JSON_RECOGNITION_REGEX
 from lib.core.settings import JSON_LIKE_RECOGNITION_REGEX
 from lib.core.settings import MULTIPART_RECOGNITION_REGEX
@@ -83,6 +85,7 @@ def _setRequestParams():
         conf.parameters[None] = "direct connection"
         return
 
+    hintNames = []
     testableParameters = False
 
     # Perform checks on GET parameters
@@ -101,7 +104,6 @@ def _setRequestParams():
 
     if conf.data is not None:
         conf.method = HTTPMETHOD.POST if not conf.method or conf.method == HTTPMETHOD.GET else conf.method
-        hintNames = []
 
         def process(match, repl):
             retVal = match.group(0)
@@ -148,8 +150,8 @@ def _setRequestParams():
                     match = re.search(r'(?P<name>[^"]+)"\s*:\s*\[([^\]]+)\]', conf.data)
                     if match and not (conf.testParameter and match.group("name") not in conf.testParameter):
                         _ = match.group(2)
-                        _ = re.sub(r'("[^"]+)"', '\g<1>%s"' % kb.customInjectionMark, _)
-                        _ = re.sub(r'(\A|,|\s+)(-?\d[\d\.]*\b)', '\g<0>%s' % kb.customInjectionMark, _)
+                        _ = re.sub(r'("[^"]+)"', r'\g<1>%s"' % kb.customInjectionMark, _)
+                        _ = re.sub(r'(\A|,|\s+)(-?\d[\d\.]*\b)', r'\g<0>%s' % kb.customInjectionMark, _)
                         conf.data = conf.data.replace(match.group(0), match.group(0).replace(match.group(2), _))
 
                 kb.postHint = POST_HINT.JSON
@@ -344,7 +346,7 @@ def _setRequestParams():
             # Url encoding of the header values should be avoided
             # Reference: http://stackoverflow.com/questions/5085904/is-ok-to-urlencode-the-value-in-headerlocation-value
 
-            if httpHeader.title() == HTTP_HEADER.USER_AGENT:
+            if httpHeader.upper() == HTTP_HEADER.USER_AGENT.upper():
                 conf.parameters[PLACE.USER_AGENT] = urldecode(headerValue)
 
                 condition = any((not conf.testParameter, intersect(conf.testParameter, USER_AGENT_ALIASES, True)))
@@ -353,7 +355,7 @@ def _setRequestParams():
                     conf.paramDict[PLACE.USER_AGENT] = {PLACE.USER_AGENT: headerValue}
                     testableParameters = True
 
-            elif httpHeader.title() == HTTP_HEADER.REFERER:
+            elif httpHeader.upper() == HTTP_HEADER.REFERER.upper():
                 conf.parameters[PLACE.REFERER] = urldecode(headerValue)
 
                 condition = any((not conf.testParameter, intersect(conf.testParameter, REFERER_ALIASES, True)))
@@ -362,7 +364,7 @@ def _setRequestParams():
                     conf.paramDict[PLACE.REFERER] = {PLACE.REFERER: headerValue}
                     testableParameters = True
 
-            elif httpHeader.title() == HTTP_HEADER.HOST:
+            elif httpHeader.upper() == HTTP_HEADER.HOST.upper():
                 conf.parameters[PLACE.HOST] = urldecode(headerValue)
 
                 condition = any((not conf.testParameter, intersect(conf.testParameter, HOST_ALIASES, True)))
@@ -391,8 +393,8 @@ def _setRequestParams():
         raise SqlmapGenericException(errMsg)
 
     if conf.csrfToken:
-        if not any(conf.csrfToken in _ for _ in (conf.paramDict.get(PLACE.GET, {}), conf.paramDict.get(PLACE.POST, {}))) and not re.search(r"\b%s\b" % re.escape(conf.csrfToken), conf.data or "") and conf.csrfToken not in set(_[0].lower() for _ in conf.httpHeaders) and conf.csrfToken not in conf.paramDict.get(PLACE.COOKIE, {}):
-            errMsg = "anti-CSRF token parameter '%s' not " % conf.csrfToken
+        if not any(re.search(conf.csrfToken, ' '.join(_), re.I) for _ in (conf.paramDict.get(PLACE.GET, {}), conf.paramDict.get(PLACE.POST, {}))) and not re.search(r"\b%s\b" % conf.csrfToken, conf.data or "") and conf.csrfToken not in set(_[0].lower() for _ in conf.httpHeaders) and conf.csrfToken not in conf.paramDict.get(PLACE.COOKIE, {}):
+            errMsg = "anti-CSRF token parameter '%s' not " % conf.csrfToken._original
             errMsg += "found in provided GET, POST, Cookie or header values"
             raise SqlmapGenericException(errMsg)
     else:
@@ -406,7 +408,10 @@ def _setRequestParams():
                     message += "Do you want sqlmap to automatically update it in further requests? [y/N] "
 
                     if readInput(message, default='N', boolean=True):
-                        conf.csrfToken = getUnicode(parameter)
+                        class _(unicode):
+                            pass
+                        conf.csrfToken = _(re.escape(getUnicode(parameter)))
+                        conf.csrfToken._original = getUnicode(parameter)
                         break
 
 def _setHashDB():
@@ -422,8 +427,8 @@ def _setHashDB():
             try:
                 os.remove(conf.hashDBFile)
                 logger.info("flushing session file")
-            except OSError, msg:
-                errMsg = "unable to flush the session file (%s)" % msg
+            except OSError as ex:
+                errMsg = "unable to flush the session file ('%s')" % getSafeExString(ex)
                 raise SqlmapFilePathException(errMsg)
 
     conf.hashDB = HashDB(conf.hashDBFile)
@@ -467,7 +472,13 @@ def _resumeDBMS():
     value = hashDBRetrieve(HASHDB_KEYS.DBMS)
 
     if not value:
-        return
+        if conf.offline:
+            errMsg = "unable to continue in offline mode "
+            errMsg += "because of lack of usable "
+            errMsg += "session data"
+            raise SqlmapNoneDataException(errMsg)
+        else:
+            return
 
     dbms = value.lower()
     dbmsVersion = [UNKNOWN_DBMS_VERSION]
@@ -547,7 +558,7 @@ def _setResultsFile():
         conf.resultsFilename = os.path.join(paths.SQLMAP_OUTPUT_PATH, time.strftime(RESULTS_FILE_FORMAT).lower())
         try:
             conf.resultsFP = openFile(conf.resultsFilename, "a", UNICODE_ENCODING, buffering=0)
-        except (OSError, IOError), ex:
+        except (OSError, IOError) as ex:
             try:
                 warnMsg = "unable to create results file '%s' ('%s'). " % (conf.resultsFilename, getUnicode(ex))
                 handle, conf.resultsFilename = tempfile.mkstemp(prefix=MKSTEMP_PREFIX.RESULTS, suffix=".csv")
@@ -555,7 +566,7 @@ def _setResultsFile():
                 conf.resultsFP = openFile(conf.resultsFilename, "w+", UNICODE_ENCODING, buffering=0)
                 warnMsg += "Using temporary file '%s' instead" % conf.resultsFilename
                 logger.warn(warnMsg)
-            except IOError, _:
+            except IOError as _:
                 errMsg = "unable to write to the temporary directory ('%s'). " % _
                 errMsg += "Please make sure that your disk is not full and "
                 errMsg += "that you have sufficient write permissions to "
@@ -571,7 +582,7 @@ def _createFilesDir():
     Create the file directory.
     """
 
-    if not conf.rFile:
+    if not conf.fileRead:
         return
 
     conf.filePath = paths.SQLMAP_FILES_PATH % conf.hostname
@@ -579,7 +590,7 @@ def _createFilesDir():
     if not os.path.isdir(conf.filePath):
         try:
             os.makedirs(conf.filePath)
-        except OSError, ex:
+        except OSError as ex:
             tempDir = tempfile.mkdtemp(prefix="sqlmapfiles")
             warnMsg = "unable to create files directory "
             warnMsg += "'%s' (%s). " % (conf.filePath, getUnicode(ex))
@@ -601,7 +612,7 @@ def _createDumpDir():
     if not os.path.isdir(conf.dumpPath):
         try:
             os.makedirs(conf.dumpPath)
-        except OSError, ex:
+        except OSError as ex:
             tempDir = tempfile.mkdtemp(prefix="sqlmapdump")
             warnMsg = "unable to create dump directory "
             warnMsg += "'%s' (%s). " % (conf.dumpPath, getUnicode(ex))
@@ -619,43 +630,15 @@ def _createTargetDirs():
     Create the output directory.
     """
 
-    try:
-        if not os.path.isdir(paths.SQLMAP_OUTPUT_PATH):
-            os.makedirs(paths.SQLMAP_OUTPUT_PATH)
-
-        _ = os.path.join(paths.SQLMAP_OUTPUT_PATH, randomStr())
-        open(_, "w+b").close()
-        os.remove(_)
-
-        if conf.outputDir:
-            warnMsg = "using '%s' as the output directory" % paths.SQLMAP_OUTPUT_PATH
-            logger.warn(warnMsg)
-    except (OSError, IOError), ex:
-        try:
-            tempDir = tempfile.mkdtemp(prefix="sqlmapoutput")
-        except Exception, _:
-            errMsg = "unable to write to the temporary directory ('%s'). " % _
-            errMsg += "Please make sure that your disk is not full and "
-            errMsg += "that you have sufficient write permissions to "
-            errMsg += "create temporary files and/or directories"
-            raise SqlmapSystemException(errMsg)
-
-        warnMsg = "unable to %s output directory " % ("create" if not os.path.isdir(paths.SQLMAP_OUTPUT_PATH) else "write to the")
-        warnMsg += "'%s' (%s). " % (paths.SQLMAP_OUTPUT_PATH, getUnicode(ex))
-        warnMsg += "Using temporary directory '%s' instead" % getUnicode(tempDir)
-        logger.warn(warnMsg)
-
-        paths.SQLMAP_OUTPUT_PATH = tempDir
-
     conf.outputPath = os.path.join(getUnicode(paths.SQLMAP_OUTPUT_PATH), normalizeUnicode(getUnicode(conf.hostname)))
 
     try:
         if not os.path.isdir(conf.outputPath):
             os.makedirs(conf.outputPath)
-    except (OSError, IOError, TypeError), ex:
+    except (OSError, IOError, TypeError) as ex:
         try:
             tempDir = tempfile.mkdtemp(prefix="sqlmapoutput")
-        except Exception, _:
+        except Exception as _:
             errMsg = "unable to write to the temporary directory ('%s'). " % _
             errMsg += "Please make sure that your disk is not full and "
             errMsg += "that you have sufficient write permissions to "
@@ -669,14 +652,16 @@ def _createTargetDirs():
 
         conf.outputPath = tempDir
 
+    conf.outputPath = getUnicode(conf.outputPath)
+
     try:
-        with codecs.open(os.path.join(conf.outputPath, "target.txt"), "w+", UNICODE_ENCODING) as f:
+        with openFile(os.path.join(conf.outputPath, "target.txt"), "w+") as f:
             f.write(kb.originalUrls.get(conf.url) or conf.url or conf.hostname)
             f.write(" (%s)" % (HTTPMETHOD.POST if conf.data else HTTPMETHOD.GET))
             f.write("  # %s" % getUnicode(subprocess.list2cmdline(sys.argv), encoding=sys.stdin.encoding))
             if conf.data:
                 f.write("\n\n%s" % getUnicode(conf.data))
-    except IOError, ex:
+    except IOError as ex:
         if "denied" in getUnicode(ex):
             errMsg = "you don't have enough permissions "
         else:
@@ -688,6 +673,13 @@ def _createTargetDirs():
     _createDumpDir()
     _createFilesDir()
     _configureDumper()
+
+def _setAuxOptions():
+    """
+    Setup auxiliary (host-dependent) options
+    """
+
+    kb.aliasName = randomStr(seed=hash(conf.hostname or ""))
 
 def _restoreMergedOptions():
     """
@@ -735,6 +727,9 @@ def initTargetEnv():
             setattr(conf.data, UNENCODED_ORIGINAL_VALUE, original)
             kb.postSpaceToPlus = '+' in original
 
+    match = re.search(INJECT_HERE_REGEX, conf.data or "") or re.search(INJECT_HERE_REGEX, conf.url or "")
+    kb.customInjectionMark = match.group(0) if match else CUSTOM_INJECTION_MARK_CHAR
+
 def setupTargetEnv():
     _createTargetDirs()
     _setRequestParams()
@@ -742,3 +737,4 @@ def setupTargetEnv():
     _resumeHashDBValues()
     _setResultsFile()
     _setAuthCred()
+    _setAuxOptions()
