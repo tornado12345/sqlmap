@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2020 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
@@ -13,7 +13,6 @@ from lib.core.common import Backend
 from lib.core.common import clearConsoleLine
 from lib.core.common import getLimitRange
 from lib.core.common import getSafeExString
-from lib.core.common import getUnicode
 from lib.core.common import isInferenceAvailable
 from lib.core.common import isListLike
 from lib.core.common import isNoneValue
@@ -26,6 +25,8 @@ from lib.core.common import singleTimeLogMessage
 from lib.core.common import singleTimeWarnMessage
 from lib.core.common import unArrayizeValue
 from lib.core.common import unsafeSQLIdentificatorNaming
+from lib.core.convert import getConsoleLength
+from lib.core.convert import getUnicode
 from lib.core.data import conf
 from lib.core.data import kb
 from lib.core.data import logger
@@ -42,11 +43,15 @@ from lib.core.exception import SqlmapUnsupportedFeatureException
 from lib.core.settings import CHECK_ZERO_COLUMNS_THRESHOLD
 from lib.core.settings import CURRENT_DB
 from lib.core.settings import NULL
+from lib.core.settings import PLUS_ONE_DBMSES
+from lib.core.settings import UPPER_CASE_DBMSES
 from lib.request import inject
 from lib.utils.hash import attackDumpedTable
 from lib.utils.pivotdumptable import pivotDumpTable
+from thirdparty import six
+from thirdparty.six.moves import zip as _zip
 
-class Entries:
+class Entries(object):
     """
     This class defines entries' enumeration functionalities for plugins.
     """
@@ -67,7 +72,7 @@ class Entries:
             conf.db = self.getCurrentDb()
 
         elif conf.db is not None:
-            if Backend.getIdentifiedDbms() in (DBMS.ORACLE, DBMS.DB2, DBMS.HSQLDB, DBMS.H2):
+            if Backend.getIdentifiedDbms() in UPPER_CASE_DBMSES:
                 conf.db = conf.db.upper()
 
             if ',' in conf.db:
@@ -75,7 +80,7 @@ class Entries:
                 errMsg += "the tables' columns"
                 raise SqlmapMissingMandatoryOptionException(errMsg)
 
-            if conf.exclude and conf.db in conf.exclude.split(','):
+            if conf.exclude and re.search(conf.exclude, conf.db, re.I) is not None:
                 infoMsg = "skipping database '%s'" % unsafeSQLIdentificatorNaming(conf.db)
                 singleTimeLogMessage(infoMsg)
                 return
@@ -83,7 +88,7 @@ class Entries:
         conf.db = safeSQLIdentificatorNaming(conf.db)
 
         if conf.tbl:
-            if Backend.getIdentifiedDbms() in (DBMS.ORACLE, DBMS.DB2, DBMS.HSQLDB, DBMS.H2):
+            if Backend.getIdentifiedDbms() in UPPER_CASE_DBMSES:
                 conf.tbl = conf.tbl.upper()
 
             tblList = conf.tbl.split(',')
@@ -91,9 +96,9 @@ class Entries:
             self.getTables()
 
             if len(kb.data.cachedTables) > 0:
-                tblList = kb.data.cachedTables.values()
+                tblList = list(six.itervalues(kb.data.cachedTables))
 
-                if isinstance(tblList[0], (set, tuple, list)):
+                if tblList and isListLike(tblList[0]):
                     tblList = tblList[0]
             elif not conf.search:
                 errMsg = "unable to retrieve the tables "
@@ -109,7 +114,7 @@ class Entries:
             if kb.dumpKeyboardInterrupt:
                 break
 
-            if conf.exclude and tbl in conf.exclude.split(','):
+            if conf.exclude and re.search(conf.exclude, tbl, re.I) is not None:
                 infoMsg = "skipping table '%s'" % unsafeSQLIdentificatorNaming(tbl)
                 singleTimeLogMessage(infoMsg)
                 continue
@@ -126,6 +131,8 @@ class Entries:
             try:
                 if Backend.isDbms(DBMS.INFORMIX):
                     kb.dumpTable = "%s:%s" % (conf.db, tbl)
+                elif Backend.isDbms(DBMS.SQLITE):
+                    kb.dumpTable = tbl
                 else:
                     kb.dumpTable = "%s.%s" % (conf.db, tbl)
 
@@ -142,7 +149,7 @@ class Entries:
                 colList = sorted(column for column in columns if column)
 
                 if conf.exclude:
-                    colList = [_ for _ in colList if _ not in conf.exclude.split(',')]
+                    colList = [_ for _ in colList if re.search(conf.exclude, _, re.I) is None]
 
                 if not colList:
                     warnMsg = "skipping table '%s'" % unsafeSQLIdentificatorNaming(tbl)
@@ -151,8 +158,8 @@ class Entries:
                     logger.warn(warnMsg)
                     continue
 
-                kb.dumpColumns = colList
-                colNames = colString = ", ".join(column for column in colList)
+                kb.dumpColumns = [unsafeSQLIdentificatorNaming(_) for _ in colList]
+                colNames = colString = ','.join(column for column in colList)
                 rootQuery = queries[Backend.getIdentifiedDbms()].dump_table
 
                 infoMsg = "fetching entries"
@@ -165,7 +172,7 @@ class Entries:
                 for column in colList:
                     _ = agent.preprocessField(tbl, column)
                     if _ != column:
-                        colString = re.sub(r"\b%s\b" % re.escape(column), _, colString)
+                        colString = re.sub(r"\b%s\b" % re.escape(column), _.replace("\\", r"\\"), colString)
 
                 entriesCount = 0
 
@@ -173,9 +180,9 @@ class Entries:
                     entries = []
                     query = None
 
-                    if Backend.getIdentifiedDbms() in (DBMS.ORACLE, DBMS.DB2):
+                    if Backend.getIdentifiedDbms() in (DBMS.ORACLE, DBMS.DB2, DBMS.DERBY, DBMS.ALTIBASE, DBMS.MIMERSQL):
                         query = rootQuery.inband.query % (colString, tbl.upper() if not conf.db else ("%s.%s" % (conf.db.upper(), tbl.upper())))
-                    elif Backend.getIdentifiedDbms() in (DBMS.SQLITE, DBMS.ACCESS, DBMS.FIREBIRD, DBMS.MAXDB):
+                    elif Backend.getIdentifiedDbms() in (DBMS.SQLITE, DBMS.ACCESS, DBMS.FIREBIRD, DBMS.MAXDB, DBMS.MCKOI, DBMS.EXTREMEDB):
                         query = rootQuery.inband.query % (colString, tbl)
                     elif Backend.getIdentifiedDbms() in (DBMS.SYBASE, DBMS.MSSQL):
                         # Partial inband and error
@@ -203,6 +210,9 @@ class Entries:
                                                 value = inject.getValue(query, blind=False, time=False, dump=True) or ""
                                                 row.append(value)
 
+                                            if not entries and isNoneValue(row):
+                                                break
+
                                             entries.append(row)
 
                                     except KeyboardInterrupt:
@@ -211,7 +221,7 @@ class Entries:
                                         warnMsg = "Ctrl+C detected in dumping phase"
                                         logger.warn(warnMsg)
 
-                            if not entries and not kb.dumpKeyboardInterrupt:
+                            if isNoneValue(entries) and not kb.dumpKeyboardInterrupt:
                                 try:
                                     retVal = pivotDumpTable(table, colList, blind=False)
                                 except KeyboardInterrupt:
@@ -223,10 +233,10 @@ class Entries:
 
                                 if retVal:
                                     entries, _ = retVal
-                                    entries = zip(*[entries[colName] for colName in colList])
+                                    entries = BigArray(_zip(*[entries[colName] for colName in colList]))
                         else:
                             query = rootQuery.inband.query % (colString, conf.db, tbl)
-                    elif Backend.getIdentifiedDbms() in (DBMS.MYSQL, DBMS.PGSQL, DBMS.HSQLDB, DBMS.H2):
+                    elif Backend.getIdentifiedDbms() in (DBMS.MYSQL, DBMS.PGSQL, DBMS.HSQLDB, DBMS.H2, DBMS.VERTICA, DBMS.PRESTO, DBMS.CRATEDB, DBMS.CACHE):
                         query = rootQuery.inband.query % (colString, conf.db, tbl, prioritySortColumns(colList)[0])
                     else:
                         query = rootQuery.inband.query % (colString, conf.db, tbl)
@@ -244,7 +254,7 @@ class Entries:
                             logger.warn(warnMsg)
 
                     if not isNoneValue(entries):
-                        if isinstance(entries, basestring):
+                        if isinstance(entries, six.string_types):
                             entries = [entries]
                         elif not isListLike(entries):
                             entries = []
@@ -259,12 +269,12 @@ class Entries:
                                 if entry is None or len(entry) == 0:
                                     continue
 
-                                if isinstance(entry, basestring):
+                                if isinstance(entry, six.string_types):
                                     colEntry = entry
                                 else:
                                     colEntry = unArrayizeValue(entry[index]) if index < len(entry) else u''
 
-                                maxLen = max(len(column), len(DUMP_REPLACEMENTS.get(getUnicode(colEntry), getUnicode(colEntry))))
+                                maxLen = max(getConsoleLength(column), getConsoleLength(DUMP_REPLACEMENTS.get(getUnicode(colEntry), getUnicode(colEntry))))
 
                                 if maxLen > kb.data.dumpedTable[column]["length"]:
                                     kb.data.dumpedTable[column]["length"] = maxLen
@@ -279,9 +289,9 @@ class Entries:
                     infoMsg += "in database '%s'" % unsafeSQLIdentificatorNaming(conf.db)
                     logger.info(infoMsg)
 
-                    if Backend.getIdentifiedDbms() in (DBMS.ORACLE, DBMS.DB2):
+                    if Backend.getIdentifiedDbms() in (DBMS.ORACLE, DBMS.DB2, DBMS.DERBY, DBMS.ALTIBASE, DBMS.MIMERSQL):
                         query = rootQuery.blind.count % (tbl.upper() if not conf.db else ("%s.%s" % (conf.db.upper(), tbl.upper())))
-                    elif Backend.getIdentifiedDbms() in (DBMS.SQLITE, DBMS.ACCESS, DBMS.FIREBIRD):
+                    elif Backend.getIdentifiedDbms() in (DBMS.SQLITE, DBMS.ACCESS, DBMS.FIREBIRD, DBMS.MCKOI, DBMS.EXTREMEDB):
                         query = rootQuery.blind.count % tbl
                     elif Backend.getIdentifiedDbms() in (DBMS.SYBASE, DBMS.MSSQL):
                         query = rootQuery.blind.count % ("%s.%s" % (conf.db, tbl))
@@ -319,12 +329,10 @@ class Entries:
 
                         continue
 
-                    elif Backend.getIdentifiedDbms() in (DBMS.ACCESS, DBMS.SYBASE, DBMS.MAXDB, DBMS.MSSQL, DBMS.INFORMIX):
-                        if Backend.isDbms(DBMS.ACCESS):
+                    elif Backend.getIdentifiedDbms() in (DBMS.ACCESS, DBMS.SYBASE, DBMS.MAXDB, DBMS.MSSQL, DBMS.INFORMIX, DBMS.MCKOI):
+                        if Backend.getIdentifiedDbms() in (DBMS.ACCESS, DBMS.MCKOI, DBMS.EXTREMEDB):
                             table = tbl
-                        elif Backend.getIdentifiedDbms() in (DBMS.SYBASE, DBMS.MSSQL):
-                            table = "%s.%s" % (conf.db, tbl)
-                        elif Backend.isDbms(DBMS.MAXDB):
+                        elif Backend.getIdentifiedDbms() in (DBMS.SYBASE, DBMS.MSSQL, DBMS.MAXDB):
                             table = "%s.%s" % (conf.db, tbl)
                         elif Backend.isDbms(DBMS.INFORMIX):
                             table = "%s:%s" % (conf.db, tbl)
@@ -374,7 +382,7 @@ class Entries:
 
                     else:
                         emptyColumns = []
-                        plusOne = Backend.getIdentifiedDbms() in (DBMS.ORACLE, DBMS.DB2)
+                        plusOne = Backend.getIdentifiedDbms() in PLUS_ONE_DBMSES
                         indexRange = getLimitRange(count, plusOne=plusOne)
 
                         if len(colList) < len(indexRange) > CHECK_ZERO_COLUMNS_THRESHOLD:
@@ -399,16 +407,22 @@ class Entries:
                                     if column not in entries:
                                         entries[column] = BigArray()
 
-                                    if Backend.getIdentifiedDbms() in (DBMS.MYSQL, DBMS.PGSQL, DBMS.HSQLDB, DBMS.H2):
+                                    if Backend.getIdentifiedDbms() in (DBMS.MYSQL, DBMS.PGSQL, DBMS.HSQLDB, DBMS.H2, DBMS.VERTICA, DBMS.PRESTO, DBMS.CRATEDB, DBMS.CACHE):
                                         query = rootQuery.blind.query % (agent.preprocessField(tbl, column), conf.db, conf.tbl, sorted(colList, key=len)[0], index)
-                                    elif Backend.getIdentifiedDbms() in (DBMS.ORACLE, DBMS.DB2):
+                                    elif Backend.getIdentifiedDbms() in (DBMS.ORACLE, DBMS.DB2, DBMS.DERBY, DBMS.ALTIBASE,):
                                         query = rootQuery.blind.query % (agent.preprocessField(tbl, column), tbl.upper() if not conf.db else ("%s.%s" % (conf.db.upper(), tbl.upper())), index)
-                                    elif Backend.isDbms(DBMS.SQLITE):
+                                    elif Backend.getIdentifiedDbms() in (DBMS.MIMERSQL,):
+                                        query = rootQuery.blind.query % (agent.preprocessField(tbl, column), tbl.upper() if not conf.db else ("%s.%s" % (conf.db.upper(), tbl.upper())), sorted(colList, key=len)[0], index)
+                                    elif Backend.getIdentifiedDbms() in (DBMS.SQLITE, DBMS.EXTREMEDB):
                                         query = rootQuery.blind.query % (agent.preprocessField(tbl, column), tbl, index)
                                     elif Backend.isDbms(DBMS.FIREBIRD):
                                         query = rootQuery.blind.query % (index, agent.preprocessField(tbl, column), tbl)
                                     elif Backend.isDbms(DBMS.INFORMIX):
                                         query = rootQuery.blind.query % (index, agent.preprocessField(tbl, column), conf.db, tbl, sorted(colList, key=len)[0])
+                                    elif Backend.isDbms(DBMS.FRONTBASE):
+                                        query = rootQuery.blind.query % (index, agent.preprocessField(tbl, column), conf.db, tbl)
+                                    else:
+                                        query = rootQuery.blind.query % (agent.preprocessField(tbl, column), conf.db, tbl, index)
 
                                     query = agent.whereQuery(query)
 
@@ -485,7 +499,7 @@ class Entries:
                 conf.db = db
 
                 for table in tables:
-                    if conf.exclude and table in conf.exclude.split(','):
+                    if conf.exclude and re.search(conf.exclude, table, re.I) is not None:
                         infoMsg = "skipping table '%s'" % unsafeSQLIdentificatorNaming(table)
                         logger.info(infoMsg)
                         continue
@@ -501,7 +515,7 @@ class Entries:
                         logger.info(infoMsg)
 
     def dumpFoundColumn(self, dbs, foundCols, colConsider):
-        message = "do you want to dump entries? [Y/n] "
+        message = "do you want to dump found column(s) entries? [Y/n] "
 
         if not readInput(message, default='Y', boolean=True):
             return
@@ -556,7 +570,7 @@ class Entries:
                 colList = [_ for _ in columns if _]
 
                 if conf.exclude:
-                    colList = [_ for _ in colList if _ not in conf.exclude.split(',')]
+                    colList = [_ for _ in colList if re.search(conf.exclude, _, re.I) is None]
 
                 conf.col = ','.join(colList)
                 kb.data.cachedColumns = {}
@@ -568,7 +582,7 @@ class Entries:
                     conf.dumper.dbTableValues(data)
 
     def dumpFoundTables(self, tables):
-        message = "do you want to dump tables' entries? [Y/n] "
+        message = "do you want to dump found table(s) entries? [Y/n] "
 
         if not readInput(message, default='Y', boolean=True):
             return

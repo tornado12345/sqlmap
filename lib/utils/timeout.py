@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2020 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
@@ -11,7 +11,7 @@ from lib.core.data import logger
 from lib.core.enums import CUSTOM_LOGGING
 from lib.core.enums import TIMEOUT_STATE
 
-def timeout(func, args=(), kwargs={}, duration=1, default=None):
+def timeout(func, args=None, kwargs=None, duration=1, default=None):
     class InterruptableThread(threading.Thread):
         def __init__(self):
             threading.Thread.__init__(self)
@@ -20,7 +20,7 @@ def timeout(func, args=(), kwargs={}, duration=1, default=None):
 
         def run(self):
             try:
-                self.result = func(*args, **kwargs)
+                self.result = func(*(args or ()), **(kwargs or {}))
                 self.timeout_state = TIMEOUT_STATE.NORMAL
             except Exception as ex:
                 logger.log(CUSTOM_LOGGING.TRAFFIC_IN, ex)
@@ -31,7 +31,7 @@ def timeout(func, args=(), kwargs={}, duration=1, default=None):
     thread.start()
     thread.join(duration)
 
-    if thread.isAlive():
+    if thread.is_alive():
         return default, TIMEOUT_STATE.TIMEOUT
     else:
         return thread.result, thread.timeout_state

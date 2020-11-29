@@ -1,9 +1,11 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2020 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
+
+import re
 
 from lib.core.agent import agent
 from lib.core.common import arrayizeValue
@@ -17,6 +19,7 @@ from lib.core.common import safeStringFormat
 from lib.core.common import singleTimeLogMessage
 from lib.core.common import unArrayizeValue
 from lib.core.common import unsafeSQLIdentificatorNaming
+from lib.core.compat import xrange
 from lib.core.data import conf
 from lib.core.data import kb
 from lib.core.data import logger
@@ -28,14 +31,11 @@ from lib.core.enums import PAYLOAD
 from lib.core.exception import SqlmapNoneDataException
 from lib.core.settings import CURRENT_DB
 from lib.request import inject
-
 from plugins.generic.enumeration import Enumeration as GenericEnumeration
+from thirdparty import six
 
 class Enumeration(GenericEnumeration):
-    def __init__(self):
-        GenericEnumeration.__init__(self)
-
-    def getPrivileges(self, *args):
+    def getPrivileges(self, *args, **kwargs):
         warnMsg = "on Microsoft SQL Server it is not possible to fetch "
         warnMsg += "database users privileges, sqlmap will check whether "
         warnMsg += "or not the database users are database administrators"
@@ -86,7 +86,7 @@ class Enumeration(GenericEnumeration):
         dbs = [_ for _ in dbs if _]
 
         infoMsg = "fetching tables for database"
-        infoMsg += "%s: %s" % ("s" if len(dbs) > 1 else "", ", ".join(db if isinstance(db, basestring) else db[0] for db in sorted(dbs)))
+        infoMsg += "%s: %s" % ("s" if len(dbs) > 1 else "", ", ".join(db if isinstance(db, six.string_types) else db[0] for db in sorted(dbs)))
         logger.info(infoMsg)
 
         rootQuery = queries[DBMS.MSSQL].tables
@@ -98,7 +98,7 @@ class Enumeration(GenericEnumeration):
                     singleTimeLogMessage(infoMsg)
                     continue
 
-                if conf.exclude and db in conf.exclude.split(','):
+                if conf.exclude and re.search(conf.exclude, db, re.I) is not None:
                     infoMsg = "skipping database '%s'" % db
                     singleTimeLogMessage(infoMsg)
                     continue
@@ -121,7 +121,7 @@ class Enumeration(GenericEnumeration):
                     singleTimeLogMessage(infoMsg)
                     continue
 
-                if conf.exclude and db in conf.exclude.split(','):
+                if conf.exclude and re.search(conf.exclude, db, re.I) is not None:
                     infoMsg = "skipping database '%s'" % db
                     singleTimeLogMessage(infoMsg)
                     continue
@@ -211,7 +211,7 @@ class Enumeration(GenericEnumeration):
                     singleTimeLogMessage(infoMsg)
                     continue
 
-                if conf.exclude and db in conf.exclude.split(','):
+                if conf.exclude and re.search(conf.exclude, db, re.I) is not None:
                     infoMsg = "skipping database '%s'" % db
                     singleTimeLogMessage(infoMsg)
                     continue
@@ -222,7 +222,7 @@ class Enumeration(GenericEnumeration):
                     values = inject.getValue(query, blind=False, time=False)
 
                     if not isNoneValue(values):
-                        if isinstance(values, basestring):
+                        if isinstance(values, six.string_types):
                             values = [values]
 
                         for foundTbl in values:
@@ -263,7 +263,7 @@ class Enumeration(GenericEnumeration):
                         kb.hintValue = tbl
                         foundTbls[db].append(tbl)
 
-        for db, tbls in foundTbls.items():
+        for db, tbls in list(foundTbls.items()):
             if len(tbls) == 0:
                 foundTbls.pop(db)
 
@@ -285,7 +285,7 @@ class Enumeration(GenericEnumeration):
         colList = conf.col.split(',')
 
         if conf.exclude:
-            colList = [_ for _ in colList if _ not in conf.exclude.split(',')]
+            colList = [_ for _ in colList if re.search(conf.exclude, _, re.I) is None]
 
         origTbl = conf.tbl
         origDb = conf.db
@@ -346,7 +346,7 @@ class Enumeration(GenericEnumeration):
                 if conf.excludeSysDbs and db in self.excludeDbsList:
                     continue
 
-                if conf.exclude and db in conf.exclude.split(','):
+                if conf.exclude and re.search(conf.exclude, db, re.I) is not None:
                     continue
 
                 if any(isTechniqueAvailable(_) for _ in (PAYLOAD.TECHNIQUE.UNION, PAYLOAD.TECHNIQUE.ERROR, PAYLOAD.TECHNIQUE.QUERY)) or conf.direct:
@@ -356,7 +356,7 @@ class Enumeration(GenericEnumeration):
                     values = inject.getValue(query, blind=False, time=False)
 
                     if not isNoneValue(values):
-                        if isinstance(values, basestring):
+                        if isinstance(values, six.string_types):
                             values = [values]
 
                         for foundTbl in values:

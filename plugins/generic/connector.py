@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2020 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
@@ -12,7 +12,7 @@ from lib.core.data import logger
 from lib.core.exception import SqlmapFilePathException
 from lib.core.exception import SqlmapUndefinedMethod
 
-class Connector:
+class Connector(object):
     """
     This class defines generic dbms protocol functionalities for plugins.
     """
@@ -30,14 +30,13 @@ class Connector:
         self.db = conf.dbmsDb
 
     def printConnected(self):
-        infoMsg = "connection to %s server %s" % (conf.dbms, self.hostname)
-        infoMsg += ":%d established" % self.port
-        logger.info(infoMsg)
+        if self.hostname and self.port:
+            infoMsg = "connection to %s server '%s:%d' established" % (conf.dbms, self.hostname, self.port)
+            logger.info(infoMsg)
 
     def closed(self):
-        if self.hostname:
-            infoMsg = "connection to %s server %s" % (conf.dbms, self.hostname)
-            infoMsg += ":%d closed" % self.port
+        if self.hostname and self.port:
+            infoMsg = "connection to %s server '%s:%d' closed" % (conf.dbms, self.hostname, self.port)
             logger.info(infoMsg)
 
         self.connector = None

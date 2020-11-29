@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2020 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
@@ -35,7 +35,7 @@ if IS_WIN and _readline:
 # Thanks to Boyd Waters for this patch.
 uses_libedit = False
 
-if PLATFORM == 'mac' and _readline:
+if PLATFORM == "mac" and _readline:
     import commands
 
     (status, result) = commands.getstatusoutput("otool -L %s | grep libedit" % _readline.__file__)

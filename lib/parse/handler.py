@@ -1,13 +1,14 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2020 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
 import re
 
 from xml.sax.handler import ContentHandler
+
 from lib.core.common import sanitizeStr
 
 class FingerprintHandler(ContentHandler):

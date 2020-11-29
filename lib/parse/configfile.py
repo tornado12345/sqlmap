@@ -1,16 +1,16 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2020 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
 from lib.core.common import checkFile
 from lib.core.common import getSafeExString
-from lib.core.common import getUnicode
 from lib.core.common import openFile
 from lib.core.common import unArrayizeValue
 from lib.core.common import UnicodeRawConfigParser
+from lib.core.convert import getUnicode
 from lib.core.data import cmdLineOptions
 from lib.core.data import conf
 from lib.core.data import logger
@@ -26,8 +26,6 @@ def configFileProxy(section, option, datatype):
     Parse configuration file and save settings into the configuration
     advanced dictionary.
     """
-
-    global config
 
     if config.has_option(section, option):
         try:
@@ -81,14 +79,14 @@ def configFileParser(configFile):
 
     mandatory = False
 
-    for option in ("direct", "url", "logFile", "bulkFile", "googleDork", "requestFile", "sitemapUrl", "wizard"):
+    for option in ("direct", "url", "logFile", "bulkFile", "googleDork", "requestFile", "wizard"):
         if config.has_option("Target", option) and config.get("Target", option) or cmdLineOptions.get(option):
             mandatory = True
             break
 
     if not mandatory:
         errMsg = "missing a mandatory option in the configuration file "
-        errMsg += "(direct, url, logFile, bulkFile, googleDork, requestFile, sitemapUrl or wizard)"
+        errMsg += "(direct, url, logFile, bulkFile, googleDork, requestFile or wizard)"
         raise SqlmapMissingMandatoryOptionException(errMsg)
 
     for family, optionData in optDict.items():

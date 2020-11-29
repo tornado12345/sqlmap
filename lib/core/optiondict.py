@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2020 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
@@ -19,7 +19,6 @@ optDict = {
         "sessionFile": "string",
         "googleDork": "string",
         "configFile": "string",
-        "sitemapUrl": "string",
     },
 
     "Request": {
@@ -28,9 +27,11 @@ optDict = {
         "paramDel": "string",
         "cookie": "string",
         "cookieDel": "string",
+        "liveCookies": "string",
         "loadCookies": "string",
         "dropSetCookie": "boolean",
         "agent": "string",
+        "mobile": "boolean",
         "randomAgent": "boolean",
         "host": "string",
         "referer": "string",
@@ -38,7 +39,7 @@ optDict = {
         "authType": "string",
         "authCred": "string",
         "authFile": "string",
-        "ignoreCode": "integer",
+        "ignoreCode": "string",
         "ignoreProxy": "boolean",
         "ignoreRedirects": "boolean",
         "ignoreTimeouts": "boolean",
@@ -60,7 +61,10 @@ optDict = {
         "skipUrlEncode": "boolean",
         "csrfToken": "string",
         "csrfUrl": "string",
+        "csrfMethod": "string",
+        "csrfRetries": "integer",
         "forceSSL": "boolean",
+        "chunked": "boolean",
         "hpp": "boolean",
         "evalCode": "string",
     },
@@ -78,6 +82,7 @@ optDict = {
         "skip": "string",
         "skipStatic": "boolean",
         "paramExclude": "string",
+        "paramFilter": "string",
         "dbms": "string",
         "dbmsCred": "string",
         "os": "string",
@@ -98,12 +103,13 @@ optDict = {
         "notString": "string",
         "regexp": "string",
         "code": "integer",
+        "smart": "boolean",
         "textOnly": "boolean",
         "titles": "boolean",
     },
 
     "Techniques": {
-        "tech": "string",
+        "technique": "string",
         "timeSec": "integer",
         "uCols": "string",
         "uChar": "string",
@@ -137,6 +143,7 @@ optDict = {
         "dumpAll": "boolean",
         "search": "boolean",
         "getComments": "boolean",
+        "getStatements": "boolean",
         "db": "string",
         "tbl": "string",
         "col": "string",
@@ -149,7 +156,7 @@ optDict = {
         "limitStop": "integer",
         "firstChar": "integer",
         "lastChar": "integer",
-        "query": "string",
+        "sqlQuery": "string",
         "sqlShell": "boolean",
         "sqlFile": "string",
     },
@@ -157,6 +164,7 @@ optDict = {
     "Brute": {
         "commonTables": "boolean",
         "commonColumns": "boolean",
+        "commonFiles": "boolean",
     },
 
     "User-defined function": {
@@ -193,10 +201,14 @@ optDict = {
 
     "General": {
         "trafficFile": "string",
+        "answers": "string",
         "batch": "boolean",
+        "base64Parameter": "string",
+        "base64Safe": "boolean",
         "binaryFields": "string",
         "charset": "string",
         "checkInternet": "boolean",
+        "cleanup": "boolean",
         "crawlDepth": "integer",
         "crawlExclude": "string",
         "csvDel": "string",
@@ -206,36 +218,35 @@ optDict = {
         "flushSession": "boolean",
         "forms": "boolean",
         "freshQueries": "boolean",
+        "googlePage": "integer",
         "harFile": "string",
         "hexConvert": "boolean",
         "outputDir": "string",
         "parseErrors": "boolean",
+        "postprocess": "string",
         "preprocess": "string",
         "repair": "boolean",
         "saveConfig": "string",
         "scope": "string",
+        "skipHeuristics": "boolean",
+        "skipWaf": "boolean",
         "testFilter": "string",
         "testSkip": "string",
-        "updateAll": "boolean",
+        "webRoot": "string",
     },
 
     "Miscellaneous": {
         "alert": "string",
-        "answers": "string",
         "beep": "boolean",
-        "cleanup": "boolean",
         "dependencies": "boolean",
         "disableColoring": "boolean",
-        "googlePage": "integer",
-        "identifyWaf": "boolean",
         "listTampers": "boolean",
-        "mobile": "boolean",
         "offline": "boolean",
         "purge": "boolean",
-        "skipWaf": "boolean",
-        "smart": "boolean",
+        "resultsFile": "string",
         "tmpDir": "string",
-        "webRoot": "string",
+        "unstable": "boolean",
+        "updateAll": "boolean",
         "wizard": "boolean",
         "verbose": "integer",
     },
@@ -247,9 +258,6 @@ optDict = {
         "forceDns": "boolean",
         "murphyRate": "integer",
         "smokeTest": "boolean",
-        "liveTest": "boolean",
-        "stopFail": "boolean",
-        "runCase": "string",
     },
 
     "API": {

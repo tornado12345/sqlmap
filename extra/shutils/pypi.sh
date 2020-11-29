@@ -16,7 +16,7 @@ cat > $TMP_DIR/setup.py << EOF
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2020 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
@@ -26,7 +26,8 @@ setup(
     name='sqlmap',
     version='$VERSION',
     description='Automatic SQL injection and database takeover tool',
-    long_description='sqlmap is an open source penetration testing tool that automates the process of detecting and exploiting SQL injection flaws and taking over of database servers. It comes with a powerful detection engine, many niche features for the ultimate penetration tester and a broad range of switches lasting from database fingerprinting, over data fetching from the database, to accessing the underlying file system and executing commands on the operating system via out-of-band connections.',
+    long_description=open('README.rst').read(),
+    long_description_content_type='text/x-rst',
     author='Bernardo Damele Assumpcao Guimaraes, Miroslav Stampar',
     author_email='bernardo@sqlmap.org, miroslav@sqlmap.org',
     url='http://sqlmap.org',
@@ -66,7 +67,7 @@ cat > sqlmap/__init__.py << EOF
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2020 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
@@ -80,7 +81,7 @@ cat > README.rst << "EOF"
 sqlmap
 ======
 
-|Build Status| |Python 2.6|2.7| |License| |Twitter|
+|Build Status| |Python 2.6|2.7|3.x| |License| |Twitter|
 
 sqlmap is an open source penetration testing tool that automates the
 process of detecting and exploiting SQL injection flaws and taking over
@@ -121,8 +122,8 @@ If you prefer fetching daily updates, you can download sqlmap by cloning the
     git clone --depth 1 https://github.com/sqlmapproject/sqlmap.git sqlmap-dev
 
 sqlmap works out of the box with
-`Python <http://www.python.org/download/>`__ version **2.6.x** and
-**2.7.x** on any platform.
+`Python <http://www.python.org/download/>`__ version **2.6**, **2.7** and
+**3.x** on any platform.
 
 Usage
 -----
@@ -131,13 +132,13 @@ To get a list of basic options and switches use:
 
 ::
 
-    python sqlmap.py -h
+    sqlmap -h
 
 To get a list of all options and switches use:
 
 ::
 
-    python sqlmap.py -hh
+    sqlmap -hh
 
 You can find a sample run `here <https://asciinema.org/a/46601>`__. To
 get an overview of sqlmap capabilities, list of supported features and
@@ -158,13 +159,13 @@ Links
 -  User's manual: https://github.com/sqlmapproject/sqlmap/wiki
 -  Frequently Asked Questions (FAQ):
    https://github.com/sqlmapproject/sqlmap/wiki/FAQ
--  Twitter: [@sqlmap](https://twitter.com/sqlmap)
+-  Twitter: https://twitter.com/sqlmap
 -  Demos: http://www.youtube.com/user/inquisb/videos
 -  Screenshots: https://github.com/sqlmapproject/sqlmap/wiki/Screenshots
 
 .. |Build Status| image:: https://api.travis-ci.org/sqlmapproject/sqlmap.svg?branch=master
    :target: https://api.travis-ci.org/sqlmapproject/sqlmap
-.. |Python 2.6|2.7| image:: https://img.shields.io/badge/python-2.6|2.7-yellow.svg
+.. |Python 2.6|2.7|3.x| image:: https://img.shields.io/badge/python-2.6|2.7|3.x-yellow.svg
    :target: https://www.python.org/
 .. |License| image:: https://img.shields.io/badge/license-GPLv2-red.svg
    :target: https://raw.githubusercontent.com/sqlmapproject/sqlmap/master/LICENSE
@@ -176,7 +177,6 @@ Links
 EOF
 sed -i "s/^VERSION =.*/VERSION = \"$VERSION\"/g" sqlmap/lib/core/settings.py
 sed -i "s/^TYPE =.*/TYPE = \"$TYPE\"/g" sqlmap/lib/core/settings.py
-sed -i "s/.*lib\/core\/settings\.py/`md5sum sqlmap/lib/core/settings.py | cut -d ' ' -f 1`  lib\/core\/settings\.py/g" sqlmap/txt/checksum.md5
 for file in $(find sqlmap -type f | grep -v -E "\.(git|yml)"); do echo include $file >> MANIFEST.in; done
 python setup.py sdist upload
 rm -rf $TMP_DIR

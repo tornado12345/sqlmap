@@ -2,14 +2,13 @@
 # -*- coding: utf-8 -*-
 
 """
-Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2020 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
 from __future__ import print_function
 
 import contextlib
-import httplib
 import logging
 import os
 import re
@@ -19,20 +18,24 @@ import sqlite3
 import sys
 import tempfile
 import time
-import urllib2
 
 from lib.core.common import dataToStdout
 from lib.core.common import getSafeExString
+from lib.core.common import openFile
 from lib.core.common import saveConfig
 from lib.core.common import unArrayizeValue
-from lib.core.convert import base64encode
-from lib.core.convert import hexencode
+from lib.core.compat import xrange
+from lib.core.convert import decodeBase64
 from lib.core.convert import dejsonize
+from lib.core.convert import encodeBase64
+from lib.core.convert import encodeHex
+from lib.core.convert import getBytes
+from lib.core.convert import getText
 from lib.core.convert import jsonize
 from lib.core.data import conf
 from lib.core.data import kb
-from lib.core.data import paths
 from lib.core.data import logger
+from lib.core.data import paths
 from lib.core.datatype import AttribDict
 from lib.core.defaults import _defaults
 from lib.core.dicts import PART_RUN_CONTENT_TYPES
@@ -42,10 +45,11 @@ from lib.core.enums import MKSTEMP_PREFIX
 from lib.core.exception import SqlmapConnectionException
 from lib.core.log import LOGGER_HANDLER
 from lib.core.optiondict import optDict
-from lib.core.settings import RESTAPI_DEFAULT_ADAPTER
 from lib.core.settings import IS_WIN
+from lib.core.settings import RESTAPI_DEFAULT_ADAPTER
 from lib.core.settings import RESTAPI_DEFAULT_ADDRESS
 from lib.core.settings import RESTAPI_DEFAULT_PORT
+from lib.core.settings import VERSION_STRING
 from lib.core.shell import autoCompletion
 from lib.core.subprocessng import Popen
 from lib.parse.cmdline import cmdLineParser
@@ -57,6 +61,10 @@ from thirdparty.bottle.bottle import request
 from thirdparty.bottle.bottle import response
 from thirdparty.bottle.bottle import run
 from thirdparty.bottle.bottle import server_names
+from thirdparty import six
+from thirdparty.six.moves import http_client as _http_client
+from thirdparty.six.moves import input as _input
+from thirdparty.six.moves import urllib as _urllib
 
 # Global data storage
 class DataStore(object):
@@ -292,7 +300,7 @@ def check_authentication():
         request.environ["PATH_INFO"] = "/error/401"
 
     try:
-        creds = match.group(1).decode("base64")
+        creds = decodeBase64(match.group(1), binary=False)
     except:
         request.environ["PATH_INFO"] = "/error/401"
     else:
@@ -362,7 +370,7 @@ def task_new():
     """
     Create a new task
     """
-    taskid = hexencode(os.urandom(8))
+    taskid = encodeHex(os.urandom(8), binary=False)
     remote_addr = request.remote_addr
 
     DataStore.tasks[taskid] = Task(taskid, remote_addr)
@@ -455,7 +463,7 @@ def option_get(taskid):
             logger.debug("(%s) Requested value for unknown option '%s'" % (taskid, option))
             return jsonize({"success": False, "message": "Unknown option '%s'" % option})
 
-    logger.debug("(%s) Retrieved values for option(s) '%s'" % (taskid, ",".join(options)))
+    logger.debug("(%s) Retrieved values for option(s) '%s'" % (taskid, ','.join(options)))
 
     return jsonize({"success": True, "options": results})
 
@@ -645,19 +653,27 @@ def download(taskid, target, filename):
 
     if os.path.isfile(path):
         logger.debug("(%s) Retrieved content of file %s" % (taskid, target))
-        with open(path, 'rb') as inf:
-            file_content = inf.read()
-        return jsonize({"success": True, "file": base64encode(file_content)})
+        content = openFile(path, "rb").read()
+        return jsonize({"success": True, "file": encodeBase64(content, binary=False)})
     else:
         logger.warning("[%s] File does not exist %s" % (taskid, target))
         return jsonize({"success": False, "message": "File does not exist"})
+
+@get("/version")
+def version(token=None):
+    """
+    Fetch server version
+    """
+
+    logger.debug("Fetched version (%s)" % ("admin" if is_admin(token) else request.remote_addr))
+    return jsonize({"success": True, "version": VERSION_STRING.split('/')[-1]})
 
 def server(host=RESTAPI_DEFAULT_ADDRESS, port=RESTAPI_DEFAULT_PORT, adapter=RESTAPI_DEFAULT_ADAPTER, username=None, password=None):
     """
     REST-JSON API server
     """
 
-    DataStore.admin_token = hexencode(os.urandom(16))
+    DataStore.admin_token = encodeHex(os.urandom(16), binary=False)
     DataStore.username = username
     DataStore.password = password
 
@@ -702,23 +718,25 @@ def server(host=RESTAPI_DEFAULT_ADDRESS, port=RESTAPI_DEFAULT_PORT, adapter=REST
             errMsg += "List of supported adapters: %s" % ', '.join(sorted(list(server_names.keys())))
         else:
             errMsg = "Server support for adapter '%s' is not installed on this system " % adapter
-            errMsg += "(Note: you can try to install it with 'sudo apt-get install python-%s' or 'sudo pip install %s')" % (adapter, adapter)
+            errMsg += "(Note: you can try to install it with 'sudo apt install python-%s' or 'sudo pip%s install %s')" % (adapter, '3' if six.PY3 else "", adapter)
         logger.critical(errMsg)
 
 def _client(url, options=None):
     logger.debug("Calling '%s'" % url)
     try:
-        data = None
-        if options is not None:
-            data = jsonize(options)
         headers = {"Content-Type": "application/json"}
 
-        if DataStore.username or DataStore.password:
-            headers["Authorization"] = "Basic %s" % base64encode("%s:%s" % (DataStore.username or "", DataStore.password or ""))
+        if options is not None:
+            data = getBytes(jsonize(options))
+        else:
+            data = None
 
-        req = urllib2.Request(url, data, headers)
-        response = urllib2.urlopen(req)
-        text = response.read()
+        if DataStore.username or DataStore.password:
+            headers["Authorization"] = "Basic %s" % encodeBase64("%s:%s" % (DataStore.username or "", DataStore.password or ""), binary=False)
+
+        req = _urllib.request.Request(url, data, headers)
+        response = _urllib.request.urlopen(req)
+        text = getText(response.read())
     except:
         if options:
             logger.error("Failed to load and parse %s" % url)
@@ -734,7 +752,7 @@ def client(host=RESTAPI_DEFAULT_ADDRESS, port=RESTAPI_DEFAULT_PORT, username=Non
     DataStore.password = password
 
     dbgMsg = "Example client access from command line:"
-    dbgMsg += "\n\t$ taskid=$(curl http://%s:%d/task/new 2>1 | grep -o -I '[a-f0-9]\{16\}') && echo $taskid" % (host, port)
+    dbgMsg += "\n\t$ taskid=$(curl http://%s:%d/task/new 2>1 | grep -o -I '[a-f0-9]\\{16\\}') && echo $taskid" % (host, port)
     dbgMsg += "\n\t$ curl -H \"Content-Type: application/json\" -X POST -d '{\"url\": \"http://testphp.vulnweb.com/artists.php?artist=1\"}' http://%s:%d/scan/$taskid/start" % (host, port)
     dbgMsg += "\n\t$ curl http://%s:%d/scan/$taskid/data" % (host, port)
     dbgMsg += "\n\t$ curl http://%s:%d/scan/$taskid/log" % (host, port)
@@ -746,14 +764,14 @@ def client(host=RESTAPI_DEFAULT_ADDRESS, port=RESTAPI_DEFAULT_PORT, username=Non
     try:
         _client(addr)
     except Exception as ex:
-        if not isinstance(ex, urllib2.HTTPError) or ex.code == httplib.UNAUTHORIZED:
+        if not isinstance(ex, _urllib.error.HTTPError) or ex.code == _http_client.UNAUTHORIZED:
             errMsg = "There has been a problem while connecting to the "
             errMsg += "REST-JSON API server at '%s' " % addr
             errMsg += "(%s)" % ex
             logger.critical(errMsg)
             return
 
-    commands = ("help", "new", "use", "data", "log", "status", "option", "stop", "kill", "list", "flush", "exit", "bye", "quit")
+    commands = ("help", "new", "use", "data", "log", "status", "option", "stop", "kill", "list", "flush", "version", "exit", "bye", "quit")
     autoCompletion(AUTOCOMPLETE_TYPE.API, commands=commands)
 
     taskid = None
@@ -761,7 +779,7 @@ def client(host=RESTAPI_DEFAULT_ADDRESS, port=RESTAPI_DEFAULT_PORT, username=Non
 
     while True:
         try:
-            command = raw_input("api%s> " % (" (%s)" % taskid if taskid else "")).strip()
+            command = _input("api%s> " % (" (%s)" % taskid if taskid else "")).strip()
             command = re.sub(r"\A(\w+)", lambda match: match.group(1).lower(), command)
         except (EOFError, KeyboardInterrupt):
             print()
@@ -842,6 +860,13 @@ def client(host=RESTAPI_DEFAULT_ADDRESS, port=RESTAPI_DEFAULT_PORT, username=Non
                 continue
             logger.info("Switching to task ID '%s' " % taskid)
 
+        elif command in ("version",):
+            raw = _client("%s/%s" % (addr, command))
+            res = dejsonize(raw)
+            if not res["success"]:
+                logger.error("Failed to execute command %s" % command)
+            dataToStdout("%s\n" % raw)
+
         elif command in ("list", "flush"):
             raw = _client("%s/admin/%s" % (addr, command))
             res = dejsonize(raw)
@@ -866,6 +891,7 @@ def client(host=RESTAPI_DEFAULT_ADDRESS, port=RESTAPI_DEFAULT_PORT, username=Non
             msg += "stop           Stop current task\n"
             msg += "kill           Kill current task\n"
             msg += "list           Display all tasks\n"
+            msg += "version        Fetch server version\n"
             msg += "flush          Flush tasks (delete all tasks)\n"
             msg += "exit           Exit this client\n"
 

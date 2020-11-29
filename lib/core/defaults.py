@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2020 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
@@ -15,12 +15,14 @@ _defaults = {
     "delay": 0,
     "timeout": 30,
     "retries": 3,
+    "csrfRetries": 0,
     "saFreq": 0,
     "threads": 1,
     "level": 1,
     "risk": 1,
     "dumpFormat": "CSV",
-    "tech": "BEUSTQ",
+    "tablePrefix": "sqlmap",
+    "technique": "BEUSTQ",
     "torType": "SOCKS5",
 }
 

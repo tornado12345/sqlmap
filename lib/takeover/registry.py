@@ -1,18 +1,19 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2020 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
 import os
 
+from lib.core.common import openFile
 from lib.core.common import randomStr
 from lib.core.data import conf
 from lib.core.data import logger
 from lib.core.enums import REGISTRY_OPERATION
 
-class Registry:
+class Registry(object):
     """
     This class defines methods to read and write Windows registry keys
     """
@@ -48,7 +49,7 @@ class Registry:
         )
 
     def _createLocalBatchFile(self):
-        self._batPathFp = open(self._batPathLocal, "w")
+        self._batPathFp = openFile(self._batPathLocal, "w")
 
         if self._operation == REGISTRY_OPERATION.READ:
             lines = self._batRead

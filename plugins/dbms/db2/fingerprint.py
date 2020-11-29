@@ -1,12 +1,13 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2020 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
 from lib.core.common import Backend
 from lib.core.common import Format
+from lib.core.compat import xrange
 from lib.core.data import conf
 from lib.core.data import kb
 from lib.core.data import logger
@@ -69,8 +70,10 @@ class Fingerprint(GenericFingerprint):
 
         if kb.bannerFp:
             banVer = kb.bannerFp.get("dbmsVersion")
-            banVer = Format.getDbms([banVer])
-            value += "\n%sbanner parsing fingerprint: %s" % (blank, banVer)
+
+            if banVer:
+                banVer = Format.getDbms([banVer])
+                value += "\n%sbanner parsing fingerprint: %s" % (blank, banVer)
 
         htmlErrorFp = Format.getErrorParsedDBMSes()
 
@@ -94,11 +97,20 @@ class Fingerprint(GenericFingerprint):
             logMsg = "confirming %s" % DBMS.DB2
             logger.info(logMsg)
 
-            version = self._versionCheck()
+            result = inject.checkBooleanExpression("JULIAN_DAY(CURRENT DATE) IS NOT NULL")
 
+            if not result:
+                warnMsg = "the back-end DBMS is not %s" % DBMS.DB2
+                logger.warn(warnMsg)
+
+                return False
+
+            version = self._versionCheck()
             if version:
                 Backend.setVersion(version)
                 setDbms("%s %s" % (DBMS.DB2, Backend.getVersion()))
+            else:
+                setDbms(DBMS.DB2)
 
             return True
         else:

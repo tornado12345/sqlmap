@@ -1,13 +1,14 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2020 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
 import imp
 import logging
 import os
+import re
 import sys
 import traceback
 import warnings
@@ -25,7 +26,7 @@ except ImportError:
 try:
     import MySQLdb  # used by SQLAlchemy in case of MySQL
     warnings.filterwarnings("error", category=MySQLdb.Warning)
-except ImportError:
+except (ImportError, AttributeError):
     pass
 
 from lib.core.data import conf
@@ -35,10 +36,18 @@ from lib.core.exception import SqlmapFilePathException
 from lib.core.exception import SqlmapMissingDependence
 from plugins.generic.connector import Connector as GenericConnector
 
+def getSafeExString(ex, encoding=None):  # Cross-referenced function
+    raise NotImplementedError
+
 class SQLAlchemy(GenericConnector):
     def __init__(self, dialect=None):
         GenericConnector.__init__(self)
+
         self.dialect = dialect
+        self.address = conf.direct
+
+        if self.dialect:
+            self.address = re.sub(r"\A.+://", "%s://" % self.dialect, self.address)
 
     def connect(self):
         if _sqlalchemy:
@@ -49,18 +58,15 @@ class SQLAlchemy(GenericConnector):
                     if not os.path.exists(self.db):
                         raise SqlmapFilePathException("the provided database file '%s' does not exist" % self.db)
 
-                    _ = conf.direct.split("//", 1)
-                    conf.direct = "%s////%s" % (_[0], os.path.abspath(self.db))
-
-                if self.dialect:
-                    conf.direct = conf.direct.replace(conf.dbms, self.dialect, 1)
+                    _ = self.address.split("//", 1)
+                    self.address = "%s////%s" % (_[0], os.path.abspath(self.db))
 
                 if self.dialect == "sqlite":
-                    engine = _sqlalchemy.create_engine(conf.direct, connect_args={"check_same_thread": False})
+                    engine = _sqlalchemy.create_engine(self.address, connect_args={"check_same_thread": False})
                 elif self.dialect == "oracle":
-                    engine = _sqlalchemy.create_engine(conf.direct)
+                    engine = _sqlalchemy.create_engine(self.address)
                 else:
-                    engine = _sqlalchemy.create_engine(conf.direct, connect_args={})
+                    engine = _sqlalchemy.create_engine(self.address, connect_args={})
 
                 self.connector = engine.connect()
             except (TypeError, ValueError):
@@ -73,11 +79,12 @@ class SQLAlchemy(GenericConnector):
                         pass
                 elif "invalid literal for int() with base 10: '0b" in traceback.format_exc():
                     raise SqlmapConnectionException("SQLAlchemy connection issue ('https://bitbucket.org/zzzeek/sqlalchemy/issues/3975')")
-                raise
+                else:
+                    pass
             except SqlmapFilePathException:
                 raise
             except Exception as ex:
-                raise SqlmapConnectionException("SQLAlchemy connection issue ('%s')" % ex[0])
+                raise SqlmapConnectionException("SQLAlchemy connection issue ('%s')" % getSafeExString(ex))
 
             self.printConnected()
         else:
@@ -90,16 +97,16 @@ class SQLAlchemy(GenericConnector):
                 retVal.append(tuple(row))
             return retVal
         except _sqlalchemy.exc.ProgrammingError as ex:
-            logger.log(logging.WARN if conf.dbmsHandler else logging.DEBUG, "(remote) %s" % ex.message if hasattr(ex, "message") else ex)
+            logger.log(logging.WARN if conf.dbmsHandler else logging.DEBUG, "(remote) %s" % getSafeExString(ex))
             return None
 
     def execute(self, query):
         try:
             self.cursor = self.connector.execute(query)
         except (_sqlalchemy.exc.OperationalError, _sqlalchemy.exc.ProgrammingError) as ex:
-            logger.log(logging.WARN if conf.dbmsHandler else logging.DEBUG, "(remote) %s" % ex.message if hasattr(ex, "message") else ex)
+            logger.log(logging.WARN if conf.dbmsHandler else logging.DEBUG, "(remote) %s" % getSafeExString(ex))
         except _sqlalchemy.exc.InternalError as ex:
-            raise SqlmapConnectionException(ex[1])
+            raise SqlmapConnectionException(getSafeExString(ex))
 
     def select(self, query):
         self.execute(query)

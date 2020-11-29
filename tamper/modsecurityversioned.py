@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2020 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
@@ -33,7 +33,7 @@ def tamper(payload, **kwargs):
     >>> import random
     >>> random.seed(0)
     >>> tamper('1 AND 2>1--')
-    '1 /*!30874AND 2>1*/--'
+    '1 /*!30963AND 2>1*/--'
     """
 
     retVal = payload

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2020 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
@@ -29,11 +29,7 @@ class MySQLMap(Syntax, Fingerprint, Enumeration, Filesystem, Miscellaneous, Take
             "sys_bineval": {"return": "int"}
         }
 
-        Syntax.__init__(self)
-        Fingerprint.__init__(self)
-        Enumeration.__init__(self)
-        Filesystem.__init__(self)
-        Miscellaneous.__init__(self)
-        Takeover.__init__(self)
+        for cls in self.__class__.__bases__:
+            cls.__init__(self)
 
     unescaper[DBMS.MYSQL] = Syntax.escape

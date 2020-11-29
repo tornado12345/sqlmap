@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2020 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
@@ -12,19 +12,21 @@ import threading
 import time
 
 from lib.core.common import getSafeExString
-from lib.core.common import getUnicode
 from lib.core.common import serializeObject
 from lib.core.common import singleTimeWarnMessage
 from lib.core.common import unserializeObject
+from lib.core.compat import xrange
+from lib.core.convert import getBytes
+from lib.core.convert import getUnicode
 from lib.core.data import logger
 from lib.core.exception import SqlmapConnectionException
 from lib.core.settings import HASHDB_END_TRANSACTION_RETRIES
 from lib.core.settings import HASHDB_FLUSH_RETRIES
 from lib.core.settings import HASHDB_FLUSH_THRESHOLD
 from lib.core.settings import HASHDB_RETRIEVE_RETRIES
-from lib.core.settings import UNICODE_ENCODING
 from lib.core.threads import getCurrentThreadData
 from lib.core.threads import getCurrentThreadName
+from thirdparty import six
 
 class HashDB(object):
     def __init__(self, filepath):
@@ -66,7 +68,7 @@ class HashDB(object):
 
     @staticmethod
     def hashKey(key):
-        key = key.encode(UNICODE_ENCODING) if isinstance(key, unicode) else repr(key)
+        key = getBytes(key if isinstance(key, six.text_type) else repr(key), errors="xmlcharrefreplace")
         retVal = int(hashlib.md5(key).hexdigest(), 16) & 0x7fffffffffffffff  # Reference: http://stackoverflow.com/a/4448400
         return retVal
 
@@ -139,6 +141,8 @@ class HashDB(object):
                             self.cursor.execute("INSERT INTO storage VALUES (?, ?)", (hash_, value,))
                         except sqlite3.IntegrityError:
                             self.cursor.execute("UPDATE storage SET value=? WHERE id=?", (value, hash_,))
+                    except UnicodeError:  # e.g. surrogates not allowed (Issue #3851)
+                        break
                     except sqlite3.DatabaseError as ex:
                         if not os.path.exists(self.filepath):
                             debugMsg = "session file '%s' does not exist" % self.filepath

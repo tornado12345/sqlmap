@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2020 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
@@ -10,16 +10,17 @@ import os
 import re
 import shutil
 import subprocess
-import sys
 import time
-import urllib
 import zipfile
 
 from lib.core.common import dataToStdout
-from lib.core.common import getSafeExString
+from lib.core.common import extractRegexResult
 from lib.core.common import getLatestRevision
+from lib.core.common import getSafeExString
+from lib.core.common import openFile
 from lib.core.common import pollProcess
 from lib.core.common import readInput
+from lib.core.convert import getText
 from lib.core.data import conf
 from lib.core.data import logger
 from lib.core.data import paths
@@ -27,8 +28,9 @@ from lib.core.revision import getRevisionNumber
 from lib.core.settings import GIT_REPOSITORY
 from lib.core.settings import IS_WIN
 from lib.core.settings import VERSION
+from lib.core.settings import TYPE
 from lib.core.settings import ZIPBALL_PAGE
-from lib.core.settings import UNICODE_ENCODING
+from thirdparty.six.moves import urllib as _urllib
 
 def update():
     if not conf.updateAll:
@@ -36,7 +38,34 @@ def update():
 
     success = False
 
-    if not os.path.exists(os.path.join(paths.SQLMAP_ROOT_PATH, ".git")):
+    if TYPE == "pip":
+        infoMsg = "updating sqlmap to the latest stable version from the "
+        infoMsg += "PyPI repository"
+        logger.info(infoMsg)
+
+        debugMsg = "sqlmap will try to update itself using 'pip' command"
+        logger.debug(debugMsg)
+
+        dataToStdout("\r[%s] [INFO] update in progress" % time.strftime("%X"))
+
+        output = ""
+        try:
+            process = subprocess.Popen("pip install -U sqlmap", shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=paths.SQLMAP_ROOT_PATH)
+            pollProcess(process, True)
+            output, _ = process.communicate()
+            success = not process.returncode
+        except Exception as ex:
+            success = False
+            output = getSafeExString(ex)
+        finally:
+            output = getText(output)
+
+        if success:
+            logger.info("%s the latest revision '%s'" % ("already at" if "already up-to-date" in output else "updated to", extractRegexResult(r"\binstalled sqlmap-(?P<result>\d+\.\d+\.\d+)", output) or extractRegexResult(r"\((?P<result>\d+\.\d+\.\d+)\)", output)))
+        else:
+            logger.error("update could not be completed ('%s')" % re.sub(r"[^a-z0-9:/\\]+", " ", output).strip())
+
+    elif not os.path.exists(os.path.join(paths.SQLMAP_ROOT_PATH, ".git")):
         warnMsg = "not a git repository. It is recommended to clone the 'sqlmapproject/sqlmap' repository "
         warnMsg += "from GitHub (e.g. 'git clone --depth 1 %s sqlmap')" % GIT_REPOSITORY
         logger.warn(warnMsg)
@@ -71,7 +100,7 @@ def update():
                     logger.error(errMsg)
                 else:
                     try:
-                        archive = urllib.urlretrieve(ZIPBALL_PAGE)[0]
+                        archive = _urllib.request.urlretrieve(ZIPBALL_PAGE)[0]
 
                         with zipfile.ZipFile(archive) as f:
                             for info in f.infolist():
@@ -81,7 +110,7 @@ def update():
 
                         filepath = os.path.join(paths.SQLMAP_ROOT_PATH, "lib", "core", "settings.py")
                         if os.path.isfile(filepath):
-                            with open(filepath, "rb") as f:
+                            with openFile(filepath, "rb") as f:
                                 version = re.search(r"(?m)^VERSION\s*=\s*['\"]([^'\"]+)", f.read()).group(1)
                                 logger.info("updated to the latest version '%s#dev'" % version)
                                 success = True
@@ -95,6 +124,7 @@ def update():
                                 os.chmod(os.path.join(directory, "sqlmap.py"), attrs)
                             except OSError:
                                 logger.warning("could not set the file attributes of '%s'" % os.path.join(directory, "sqlmap.py"))
+
     else:
         infoMsg = "updating sqlmap to the latest development revision from the "
         infoMsg += "GitHub repository"
@@ -105,24 +135,27 @@ def update():
 
         dataToStdout("\r[%s] [INFO] update in progress" % time.strftime("%X"))
 
+        output = ""
         try:
-            process = subprocess.Popen("git checkout . && git pull %s HEAD" % GIT_REPOSITORY, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=paths.SQLMAP_ROOT_PATH.encode(sys.getfilesystemencoding() or UNICODE_ENCODING))
+            process = subprocess.Popen("git checkout . && git pull %s HEAD" % GIT_REPOSITORY, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=paths.SQLMAP_ROOT_PATH)
             pollProcess(process, True)
-            stdout, stderr = process.communicate()
+            output, _ = process.communicate()
             success = not process.returncode
-        except (IOError, OSError) as ex:
+        except Exception as ex:
             success = False
-            stderr = getSafeExString(ex)
+            output = getSafeExString(ex)
+        finally:
+            output = getText(output)
 
         if success:
-            logger.info("%s the latest revision '%s'" % ("already at" if "Already" in stdout else "updated to", getRevisionNumber()))
+            logger.info("%s the latest revision '%s'" % ("already at" if "Already" in output else "updated to", getRevisionNumber()))
         else:
-            if "Not a git repository" in stderr:
+            if "Not a git repository" in output:
                 errMsg = "not a valid git repository. Please checkout the 'sqlmapproject/sqlmap' repository "
                 errMsg += "from GitHub (e.g. 'git clone --depth 1 %s sqlmap')" % GIT_REPOSITORY
                 logger.error(errMsg)
             else:
-                logger.error("update could not be completed ('%s')" % re.sub(r"\W+", " ", stderr).strip())
+                logger.error("update could not be completed ('%s')" % re.sub(r"\W+", " ", output).strip())
 
     if not success:
         if IS_WIN:
@@ -133,6 +166,6 @@ def update():
             infoMsg += "https://github.com/sqlmapproject/sqlmap/downloads"
         else:
             infoMsg = "for Linux platform it's recommended "
-            infoMsg += "to install a standard 'git' package (e.g.: 'sudo apt-get install git')"
+            infoMsg += "to install a standard 'git' package (e.g.: 'sudo apt install git')"
 
         logger.info(infoMsg)

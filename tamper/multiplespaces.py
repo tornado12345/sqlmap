@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2020 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
@@ -9,6 +9,7 @@ import random
 import re
 
 from lib.core.data import kb
+from lib.core.datatype import OrderedSet
 from lib.core.enums import PRIORITY
 
 __priority__ = PRIORITY.NORMAL
@@ -28,13 +29,13 @@ def tamper(payload, **kwargs):
 
     >>> random.seed(0)
     >>> tamper('1 UNION SELECT foobar')
-    '1    UNION     SELECT   foobar'
+    '1     UNION     SELECT     foobar'
     """
 
     retVal = payload
 
     if payload:
-        words = set()
+        words = OrderedSet()
 
         for match in re.finditer(r"\b[A-Za-z_]+\b", payload):
             word = match.group()
@@ -43,7 +44,7 @@ def tamper(payload, **kwargs):
                 words.add(word)
 
         for word in words:
-            retVal = re.sub(r"(?<=\W)%s(?=[^A-Za-z_(]|\Z)" % word, "%s%s%s" % (' ' * random.randrange(1, 4), word, ' ' * random.randrange(1, 4)), retVal)
-            retVal = re.sub(r"(?<=\W)%s(?=[(])" % word, "%s%s" % (' ' * random.randrange(1, 4), word), retVal)
+            retVal = re.sub(r"(?<=\W)%s(?=[^A-Za-z_(]|\Z)" % word, "%s%s%s" % (' ' * random.randint(1, 4), word, ' ' * random.randint(1, 4)), retVal)
+            retVal = re.sub(r"(?<=\W)%s(?=[(])" % word, "%s%s" % (' ' * random.randint(1, 4), word), retVal)
 
     return retVal

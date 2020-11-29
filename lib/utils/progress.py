@@ -1,14 +1,16 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2020 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
+from __future__ import division
+
 import time
 
-from lib.core.common import getUnicode
 from lib.core.common import dataToStdout
+from lib.core.convert import getUnicode
 from lib.core.data import conf
 from lib.core.data import kb
 
@@ -91,11 +93,8 @@ class ProgressBar(object):
 
         dataToStdout("\r%s %d/%d%s" % (self._progBar, self._amount, self._max, ("  (ETA %s)" % (self._convertSeconds(int(eta)) if eta is not None else "??:??"))))
         if self._amount >= self._max:
-            if not conf.liveTest:
-                dataToStdout("\r%s\r" % (" " * self._width))
-                kb.prependFlag = False
-            else:
-                dataToStdout("\n")
+            dataToStdout("\r%s\r" % (" " * self._width))
+            kb.prependFlag = False
 
     def __str__(self):
         """

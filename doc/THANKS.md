@@ -112,6 +112,9 @@ Alessio Dalla Piazza, <alessio.dallapiazza(at)gmail.com>
 Sherif El-Deeb, <archeldeeb(at)gmail.com>
 * for reporting a minor bug
 
+Thomas Etrillard, <thomas.etrillard(at)synacktiv.com>
+* for contributing the IBM DB2 error-based payloads (RAISE_ERROR)
+
 Stefano Di Paola, <stefano.dipaola(at)wisec.it>
 * for suggesting good features
 
@@ -202,7 +205,7 @@ Tate Hansen, <tate(at)clearnetsec.com>
 Mario Heiderich, <mario.heiderich(at)gmail.com>
 Christian Matthies, <ch0012(at)gmail.com>
 Lars H. Strojny, <lars(at)strojny.net>
-* for their great tool PHPIDS included in sqlmap tree as a set of rules for testing payloads against IDS detection, http://php-ids.org
+* for their great tool PHPIDS included in sqlmap tree as a set of rules for testing payloads against IDS detection, https://github.com/PHPIDS/PHPIDS
 
 Kristian Erik Hermansen, <kristian.hermansen(at)gmail.com>
 * for reporting a bug
@@ -316,6 +319,9 @@ Michael Majchrowicz, <mmajchrowicz(at)gmail.com>
 
 Vinícius Henrique Marangoni, <vinicius_marangoni1(at)hotmail.com>
 * for contributing a Portuguese translation of README.md
+
+Francesco Marano, <francesco.mrn24(at)gmail.com>
+* for contributing the Microsoft SQL Server/Sybase error-based - Stacking (EXEC) payload
 
 Ahmad Maulana, <matdhule(at)gmail.com>
 * for contributing a tamper script halfversionedmorekeywords.py
@@ -485,6 +491,9 @@ Marek Sarvas, <marek.sarvas(at)gmail.com>
 
 Philippe A. R. Schaeffer, <schaeff(at)compuphil.de>
 * for reporting a minor bug
+
+Henri Salo <henri(at)nerv.fi>
+* for a donation
 
 Mohd Zamiri Sanin, <zamiri.sanin(at)gmail.com>
 * for reporting a minor bug
@@ -763,6 +772,12 @@ ultramegaman, <seclists(at)ultramegaman.com>
 
 Vinicius, <viniciusmaxdaloop(at)gmail.com>
 * for reporting a minor bug
+
+virusdefender
+* for contributing WAF scripts safeline.py
+
+w8ay
+* for contributing an implementation for chunked transfer-encoding (switch --chunked)
 
 wanglei, <wanglei(at)17uxi.cn>
 * for reporting a minor bug

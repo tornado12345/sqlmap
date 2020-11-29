@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2020 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
@@ -9,10 +9,13 @@ import os
 
 from lib.core.common import Backend
 from lib.core.common import getSafeExString
+from lib.core.common import isDigit
 from lib.core.common import isStackingAvailable
+from lib.core.common import openFile
 from lib.core.common import readInput
 from lib.core.common import runningAsAdmin
 from lib.core.data import conf
+from lib.core.data import kb
 from lib.core.data import logger
 from lib.core.enums import DBMS
 from lib.core.enums import OS
@@ -24,21 +27,18 @@ from lib.core.exception import SqlmapNotVulnerableException
 from lib.core.exception import SqlmapSystemException
 from lib.core.exception import SqlmapUndefinedMethod
 from lib.core.exception import SqlmapUnsupportedDBMSException
-from lib.core.settings import TAKEOVER_TABLE_PREFIX
 from lib.takeover.abstraction import Abstraction
 from lib.takeover.icmpsh import ICMPsh
 from lib.takeover.metasploit import Metasploit
 from lib.takeover.registry import Registry
 
-from plugins.generic.misc import Miscellaneous
-
-class Takeover(Abstraction, Metasploit, ICMPsh, Registry, Miscellaneous):
+class Takeover(Abstraction, Metasploit, ICMPsh, Registry):
     """
     This class defines generic OS takeover functionalities for plugins.
     """
 
     def __init__(self):
-        self.cmdTblName = ("%soutput" % TAKEOVER_TABLE_PREFIX)
+        self.cmdTblName = ("%soutput" % conf.tablePrefix)
         self.tblField = "data"
 
         Abstraction.__init__(self)
@@ -80,7 +80,20 @@ class Takeover(Abstraction, Metasploit, ICMPsh, Registry, Miscellaneous):
             raise SqlmapNotVulnerableException(errMsg)
 
         self.getRemoteTempPath()
-        self.initEnv(web=web)
+
+        try:
+            self.initEnv(web=web)
+        except SqlmapFilePathException:
+            if not web and not conf.direct:
+                infoMsg = "falling back to web backdoor method..."
+                logger.info(infoMsg)
+
+                web = True
+                kb.udfFail = True
+
+                self.initEnv(web=web)
+            else:
+                raise
 
         if not web or (web and self.webBackdoorUrl is not None):
             self.shell()
@@ -103,7 +116,7 @@ class Takeover(Abstraction, Metasploit, ICMPsh, Registry, Miscellaneous):
             while True:
                 tunnel = readInput(msg, default='1')
 
-                if tunnel.isdigit() and int(tunnel) in (1, 2):
+                if isDigit(tunnel) and int(tunnel) in (1, 2):
                     tunnel = int(tunnel)
                     break
 
@@ -139,7 +152,7 @@ class Takeover(Abstraction, Metasploit, ICMPsh, Registry, Miscellaneous):
 
             if os.path.exists(filename):
                 try:
-                    with open(filename, "wb") as f:
+                    with openFile(filename, "wb") as f:
                         f.write("1")
                 except IOError as ex:
                     errMsg = "there has been a file opening/writing error "
@@ -169,12 +182,12 @@ class Takeover(Abstraction, Metasploit, ICMPsh, Registry, Miscellaneous):
                     msg = "how do you want to execute the Metasploit shellcode "
                     msg += "on the back-end database underlying operating system?"
                     msg += "\n[1] Via UDF 'sys_bineval' (in-memory way, anti-forensics, default)"
-                    msg += "\n[2] Via shellcodeexec (file system way, preferred on 64-bit systems)"
+                    msg += "\n[2] Via 'shellcodeexec' (file system way, preferred on 64-bit systems)"
 
                     while True:
                         choice = readInput(msg, default='1')
 
-                        if choice.isdigit() and int(choice) in (1, 2):
+                        if isDigit(choice) and int(choice) in (1, 2):
                             choice = int(choice)
                             break
 

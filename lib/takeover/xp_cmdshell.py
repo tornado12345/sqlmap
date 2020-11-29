@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2020 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
@@ -15,12 +15,13 @@ from lib.core.common import isListLike
 from lib.core.common import isNoneValue
 from lib.core.common import isNumPosStrValue
 from lib.core.common import isTechniqueAvailable
-from lib.core.common import pushValue
 from lib.core.common import popValue
+from lib.core.common import pushValue
 from lib.core.common import randomStr
 from lib.core.common import readInput
 from lib.core.common import wasLastResponseDelayed
-from lib.core.convert import hexencode
+from lib.core.compat import xrange
+from lib.core.convert import encodeHex
 from lib.core.data import conf
 from lib.core.data import kb
 from lib.core.data import logger
@@ -34,7 +35,7 @@ from lib.core.exception import SqlmapUnsupportedFeatureException
 from lib.core.threads import getCurrentThreadData
 from lib.request import inject
 
-class XP_cmdshell:
+class XP_cmdshell(object):
     """
     This class defines methods to deal with Microsoft SQL Server
     xp_cmdshell extended procedure for plugins.
@@ -165,7 +166,7 @@ class XP_cmdshell:
         # Obfuscate the command to execute, also useful to bypass filters
         # on single-quotes
         self._randStr = randomStr(lowercase=True)
-        self._cmd = "0x%s" % hexencode(cmd, conf.encoding)
+        self._cmd = "0x%s" % encodeHex(cmd, binary=False)
         self._forgedCmd = "DECLARE @%s VARCHAR(8000);" % self._randStr
         self._forgedCmd += "SET @%s=%s;" % (self._randStr, self._cmd)
 

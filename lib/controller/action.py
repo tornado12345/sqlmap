@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2020 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
@@ -17,6 +17,7 @@ from lib.core.exception import SqlmapNoneDataException
 from lib.core.exception import SqlmapUnsupportedDBMSException
 from lib.core.settings import SUPPORTED_DBMS
 from lib.utils.brute import columnExists
+from lib.utils.brute import fileExists
 from lib.utils.brute import tableExists
 
 def action():
@@ -53,6 +54,8 @@ def action():
 
     conf.dumper.singleString(conf.dbmsHandler.getFingerprint())
 
+    kb.fingerprinted = True
+
     # Enumeration options
     if conf.getBanner:
         conf.dumper.banner(conf.dbmsHandler.getBanner())
@@ -71,6 +74,9 @@ def action():
 
     if conf.getUsers:
         conf.dumper.users(conf.dbmsHandler.getUsers())
+
+    if conf.getStatements:
+        conf.dumper.statements(conf.dbmsHandler.getStatements())
 
     if conf.getPasswordHashes:
         try:
@@ -176,8 +182,11 @@ def action():
         except:
             raise
 
-    if conf.query:
-        conf.dumper.query(conf.query, conf.dbmsHandler.sqlQuery(conf.query))
+    if conf.sqlQuery:
+        for query in conf.sqlQuery.strip(';').split(';'):
+            query = query.strip()
+            if query:
+                conf.dumper.sqlQuery(query, conf.dbmsHandler.sqlQuery(query))
 
     if conf.sqlShell:
         conf.dbmsHandler.sqlShell()
@@ -195,6 +204,14 @@ def action():
 
     if conf.fileWrite:
         conf.dbmsHandler.writeFile(conf.fileWrite, conf.fileDest, conf.fileWriteType)
+
+    if conf.commonFiles:
+        try:
+            conf.dumper.rFile(fileExists(paths.COMMON_FILES))
+        except SqlmapNoneDataException as ex:
+            logger.critical(ex)
+        except:
+            raise
 
     # Operating system options
     if conf.osCmd:

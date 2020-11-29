@@ -1,13 +1,14 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2020 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
 import re
 
 from lib.core.common import randomRange
+from lib.core.compat import xrange
 from lib.core.data import kb
 from lib.core.enums import PRIORITY
 
@@ -20,7 +21,7 @@ def tamper(payload, **kwargs):
     >>> import random
     >>> random.seed(0)
     >>> tamper('INSERT')
-    'I/**/N/**/SERT'
+    'I/**/NS/**/ERT'
     """
 
     retVal = payload

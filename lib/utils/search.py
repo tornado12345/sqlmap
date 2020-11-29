@@ -1,22 +1,20 @@
 #!/usr/bin/env python
 
 """
-Copyright (c) 2006-2019 sqlmap developers (http://sqlmap.org/)
+Copyright (c) 2006-2020 sqlmap developers (http://sqlmap.org/)
 See the file 'LICENSE' for copying permission
 """
 
-import httplib
 import re
 import socket
-import urllib
-import urllib2
 
 from lib.core.common import getSafeExString
-from lib.core.common import getUnicode
 from lib.core.common import popValue
 from lib.core.common import pushValue
 from lib.core.common import readInput
 from lib.core.common import urlencode
+from lib.core.convert import getBytes
+from lib.core.convert import getUnicode
 from lib.core.data import conf
 from lib.core.data import kb
 from lib.core.data import logger
@@ -28,12 +26,14 @@ from lib.core.exception import SqlmapBaseException
 from lib.core.exception import SqlmapConnectionException
 from lib.core.exception import SqlmapUserQuitException
 from lib.core.settings import BING_REGEX
-from lib.core.settings import DUMMY_SEARCH_USER_AGENT
 from lib.core.settings import DUCKDUCKGO_REGEX
+from lib.core.settings import DUMMY_SEARCH_USER_AGENT
 from lib.core.settings import GOOGLE_REGEX
 from lib.core.settings import HTTP_ACCEPT_ENCODING_HEADER_VALUE
 from lib.core.settings import UNICODE_ENCODING
 from lib.request.basic import decodePage
+from thirdparty.six.moves import http_client as _http_client
+from thirdparty.six.moves import urllib as _urllib
 from thirdparty.socks import socks
 
 def _search(dork):
@@ -45,15 +45,17 @@ def _search(dork):
     if not dork:
         return None
 
+    page = None
     data = None
-    headers = {}
+    requestHeaders = {}
+    responseHeaders = {}
 
-    headers[HTTP_HEADER.USER_AGENT] = dict(conf.httpHeaders).get(HTTP_HEADER.USER_AGENT, DUMMY_SEARCH_USER_AGENT)
-    headers[HTTP_HEADER.ACCEPT_ENCODING] = HTTP_ACCEPT_ENCODING_HEADER_VALUE
+    requestHeaders[HTTP_HEADER.USER_AGENT] = dict(conf.httpHeaders).get(HTTP_HEADER.USER_AGENT, DUMMY_SEARCH_USER_AGENT)
+    requestHeaders[HTTP_HEADER.ACCEPT_ENCODING] = HTTP_ACCEPT_ENCODING_HEADER_VALUE
 
     try:
-        req = urllib2.Request("https://www.google.com/ncr", headers=headers)
-        conn = urllib2.urlopen(req)
+        req = _urllib.request.Request("https://www.google.com/ncr", headers=requestHeaders)
+        conn = _urllib.request.urlopen(req)
     except Exception as ex:
         errMsg = "unable to connect to Google ('%s')" % getSafeExString(ex)
         raise SqlmapConnectionException(errMsg)
@@ -67,18 +69,17 @@ def _search(dork):
     url += "&start=%d" % ((gpage - 1) * 100)
 
     try:
-        req = urllib2.Request(url, headers=headers)
-        conn = urllib2.urlopen(req)
+        req = _urllib.request.Request(url, headers=requestHeaders)
+        conn = _urllib.request.urlopen(req)
 
         requestMsg = "HTTP request:\nGET %s" % url
-        requestMsg += " %s" % httplib.HTTPConnection._http_vsn_str
+        requestMsg += " %s" % _http_client.HTTPConnection._http_vsn_str
         logger.log(CUSTOM_LOGGING.TRAFFIC_OUT, requestMsg)
 
         page = conn.read()
         code = conn.code
         status = conn.msg
         responseHeaders = conn.info()
-        page = decodePage(page, responseHeaders.get("Content-Encoding"), responseHeaders.get("Content-Type"))
 
         responseMsg = "HTTP response (%s - %d):\n" % (status, code)
 
@@ -88,19 +89,24 @@ def _search(dork):
             responseMsg += "%s\n%s\n" % (responseHeaders, page)
 
         logger.log(CUSTOM_LOGGING.TRAFFIC_IN, responseMsg)
-    except urllib2.HTTPError as ex:
+    except _urllib.error.HTTPError as ex:
         try:
             page = ex.read()
+            responseHeaders = ex.info()
         except Exception as _:
             warnMsg = "problem occurred while trying to get "
             warnMsg += "an error page information (%s)" % getSafeExString(_)
             logger.critical(warnMsg)
             return None
-    except (urllib2.URLError, httplib.error, socket.error, socket.timeout, socks.ProxyError):
+    except (_urllib.error.URLError, _http_client.error, socket.error, socket.timeout, socks.ProxyError):
         errMsg = "unable to connect to Google"
         raise SqlmapConnectionException(errMsg)
 
-    retVal = [urllib.unquote(match.group(1) or match.group(2)) for match in re.finditer(GOOGLE_REGEX, page, re.I)]
+    page = decodePage(page, responseHeaders.get(HTTP_HEADER.CONTENT_ENCODING), responseHeaders.get(HTTP_HEADER.CONTENT_TYPE))
+
+    page = getUnicode(page)  # Note: if upper function call fails (Issue #4202)
+
+    retVal = [_urllib.parse.unquote(match.group(1) or match.group(2)) for match in re.finditer(GOOGLE_REGEX, page, re.I)]
 
     if not retVal and "detected unusual traffic" in page:
         warnMsg = "Google has detected 'unusual' traffic from "
@@ -129,11 +135,11 @@ def _search(dork):
             regex = DUCKDUCKGO_REGEX
 
         try:
-            req = urllib2.Request(url, data=data, headers=headers)
-            conn = urllib2.urlopen(req)
+            req = _urllib.request.Request(url, data=getBytes(data), headers=requestHeaders)
+            conn = _urllib.request.urlopen(req)
 
             requestMsg = "HTTP request:\nGET %s" % url
-            requestMsg += " %s" % httplib.HTTPConnection._http_vsn_str
+            requestMsg += " %s" % _http_client.HTTPConnection._http_vsn_str
             logger.log(CUSTOM_LOGGING.TRAFFIC_OUT, requestMsg)
 
             page = conn.read()
@@ -150,7 +156,7 @@ def _search(dork):
                 responseMsg += "%s\n%s\n" % (responseHeaders, page)
 
             logger.log(CUSTOM_LOGGING.TRAFFIC_IN, responseMsg)
-        except urllib2.HTTPError as ex:
+        except _urllib.error.HTTPError as ex:
             try:
                 page = ex.read()
                 page = decodePage(page, ex.headers.get("Content-Encoding"), ex.headers.get("Content-Type"))
@@ -163,7 +169,7 @@ def _search(dork):
             errMsg = "unable to connect"
             raise SqlmapConnectionException(errMsg)
 
-        retVal = [urllib.unquote(match.group(1).replace("&amp;", "&")) for match in re.finditer(regex, page, re.I | re.S)]
+        retVal = [_urllib.parse.unquote(match.group(1).replace("&amp;", "&")) for match in re.finditer(regex, page, re.I | re.S)]
 
         if not retVal and "issue with the Tor Exit Node you are currently using" in page:
             warnMsg = "DuckDuckGo has detected 'unusual' traffic from "
